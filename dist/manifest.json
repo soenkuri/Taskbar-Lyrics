@@ -1,20 +1,36 @@
 {
     "manifest_version": 1,
-    "type": "extension",
     "name": "任务栏歌词",
-    "slug": "taskbar_lyrics",
-    "description": "[新版本] 在任务栏显示歌词",
-    "preview": "./preview.png",
-    "version": "2.0.0",
-    "betterncm_version": ">=3.0.0",
+    "slug": "Taskbar-Lyrics",
+    "description": "在任务栏上嵌入歌词，目前仅建议Windows 11，且任务栏未被第三方软件修改",
+    "preview": "preview.png",
+    "version": "1.6.3",
     "author": "沫烬染",
-    "author_link": "https://github.com/mo-jinran",
+    "author_links": [
+        "https://github.com/mo-jinran"
+    ],
+    "type": "extension",
+    "loadAfter": [
+        "liblyric",
+        "RefinedNowPlaying"
+    ],
+    "requirements": [
+        "liblyric"
+    ],
     "injects": {
         "Main": [
             {
-                "file": "plugin.js"
+                "file": "base.js"
+            },
+            {
+                "file": "lyric.js"
+            },
+            {
+                "file": "func.js"
+            },
+            {
+                "file": "view.js"
             }
         ]
-    },
-    "native_plugin": "native.dll"
+    }
 }
