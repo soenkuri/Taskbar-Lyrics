@@ -147,13 +147,13 @@ plugin.onLoad(async () => {
             "adjust": 0.0
         },
         "align": {
-            "basic": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_LEADING,
-            "extra": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_LEADING
+            "basic": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER,
+            "extra": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER
         },
         "position": {
             "position": {
-                "value": WindowsEnum.WindowAlignment.WindowAlignmentAdaptive,
-                "textContent": "自动，自适应选择左或右"
+                "value": WindowsEnum.WindowAlignment.WindowAlignmentCenter,
+                "textContent": "居中，歌词窗口居中显示"
             }
         },
         "margin": {
