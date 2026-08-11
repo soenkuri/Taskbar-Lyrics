@@ -89,7 +89,7 @@ class 呈现窗口类
     float 歌词不透明度 = 1.0f;
     UINT_PTR 淡入定时器ID = 0;
     int 淡入动画进度 = 0;
-    int 淡入总步数 = 8;
+    int 淡入总步数 = 10;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;
 

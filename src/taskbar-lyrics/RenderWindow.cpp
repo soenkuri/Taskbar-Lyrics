@@ -412,6 +412,6 @@ void 呈现窗口类::开始淡入动画()
     float t = static_cast<float>(this->淡入动画进度) / this->淡入总步数;
     this->歌词不透明度 = t * (2.0f - t);
 
-    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 30, NULL);
+    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 40, NULL);
     PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
 }
