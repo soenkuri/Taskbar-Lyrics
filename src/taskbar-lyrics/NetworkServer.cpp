@@ -50,11 +50,16 @@ void 网络服务器类::字体(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->字体名称 = this->字符转换.from_bytes(
+    std::wstring 新字体名称 = this->字符转换.from_bytes(
         json["font_family"].get<std::string>()
     );
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    if (this->任务栏窗口->呈现窗口->字体名称 != 新字体名称)
+    {
+        this->任务栏窗口->呈现窗口->字体名称 = 新字体名称;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
@@ -65,24 +70,40 @@ void 网络服务器类::颜色(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->字体颜色_浅色_主歌词 = D2D1::ColorF(
+    D2D1::ColorF 新_浅色_主 = D2D1::ColorF(
         json["basic"]["light"]["hex_color"].get<unsigned int>(),
         json["basic"]["light"]["opacity"].get<float>()
     );
-    this->任务栏窗口->呈现窗口->字体颜色_深色_主歌词 = D2D1::ColorF(
+    D2D1::ColorF 新_深色_主 = D2D1::ColorF(
         json["basic"]["dark"]["hex_color"].get<unsigned int>(),
         json["basic"]["dark"]["opacity"].get<float>()
     );
-    this->任务栏窗口->呈现窗口->字体颜色_浅色_副歌词 = D2D1::ColorF(
+    D2D1::ColorF 新_浅色_副 = D2D1::ColorF(
         json["extra"]["light"]["hex_color"].get<unsigned int>(),
         json["extra"]["light"]["opacity"].get<float>()
     );
-    this->任务栏窗口->呈现窗口->字体颜色_深色_副歌词 = D2D1::ColorF(
+    D2D1::ColorF 新_深色_副 = D2D1::ColorF(
         json["extra"]["dark"]["hex_color"].get<unsigned int>(),
         json["extra"]["dark"]["opacity"].get<float>()
     );
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    if (窗口->字体颜色_浅色_主歌词.r != 新_浅色_主.r || 窗口->字体颜色_浅色_主歌词.g != 新_浅色_主.g ||
+        窗口->字体颜色_浅色_主歌词.b != 新_浅色_主.b || 窗口->字体颜色_浅色_主歌词.a != 新_浅色_主.a ||
+        窗口->字体颜色_深色_主歌词.r != 新_深色_主.r || 窗口->字体颜色_深色_主歌词.g != 新_深色_主.g ||
+        窗口->字体颜色_深色_主歌词.b != 新_深色_主.b || 窗口->字体颜色_深色_主歌词.a != 新_深色_主.a ||
+        窗口->字体颜色_浅色_副歌词.r != 新_浅色_副.r || 窗口->字体颜色_浅色_副歌词.g != 新_浅色_副.g ||
+        窗口->字体颜色_浅色_副歌词.b != 新_浅色_副.b || 窗口->字体颜色_浅色_副歌词.a != 新_浅色_副.a ||
+        窗口->字体颜色_深色_副歌词.r != 新_深色_副.r || 窗口->字体颜色_深色_副歌词.g != 新_深色_副.g ||
+        窗口->字体颜色_深色_副歌词.b != 新_深色_副.b || 窗口->字体颜色_深色_副歌词.a != 新_深色_副.a)
+    {
+        窗口->字体颜色_浅色_主歌词 = 新_浅色_主;
+        窗口->字体颜色_深色_主歌词 = 新_深色_主;
+        窗口->字体颜色_浅色_副歌词 = 新_浅色_副;
+        窗口->字体颜色_深色_副歌词 = 新_深色_副;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
@@ -93,16 +114,32 @@ void 网络服务器类::样式(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->字体样式_主歌词_字重 = json["basic"]["weight"]["value"].get<DWRITE_FONT_WEIGHT>();
-    this->任务栏窗口->呈现窗口->字体样式_主歌词_斜体 = json["basic"]["slope"].get<DWRITE_FONT_STYLE>();
-    this->任务栏窗口->呈现窗口->字体样式_主歌词_下划线 = json["basic"]["underline"].get<bool>();
-    this->任务栏窗口->呈现窗口->字体样式_主歌词_删除线 = json["basic"]["strikethrough"].get<bool>();
-    this->任务栏窗口->呈现窗口->字体样式_副歌词_字重 = json["extra"]["weight"]["value"].get<DWRITE_FONT_WEIGHT>();
-    this->任务栏窗口->呈现窗口->字体样式_副歌词_斜体 = json["extra"]["slope"].get<DWRITE_FONT_STYLE>();
-    this->任务栏窗口->呈现窗口->字体样式_副歌词_下划线 = json["extra"]["underline"].get<bool>();
-    this->任务栏窗口->呈现窗口->字体样式_副歌词_删除线 = json["extra"]["strikethrough"].get<bool>();
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    DWRITE_FONT_WEIGHT 新_主_字重 = json["basic"]["weight"]["value"].get<DWRITE_FONT_WEIGHT>();
+    DWRITE_FONT_STYLE 新_主_斜体 = json["basic"]["slope"].get<DWRITE_FONT_STYLE>();
+    bool 新_主_下划线 = json["basic"]["underline"].get<bool>();
+    bool 新_主_删除线 = json["basic"]["strikethrough"].get<bool>();
+    DWRITE_FONT_WEIGHT 新_副_字重 = json["extra"]["weight"]["value"].get<DWRITE_FONT_WEIGHT>();
+    DWRITE_FONT_STYLE 新_副_斜体 = json["extra"]["slope"].get<DWRITE_FONT_STYLE>();
+    bool 新_副_下划线 = json["extra"]["underline"].get<bool>();
+    bool 新_副_删除线 = json["extra"]["strikethrough"].get<bool>();
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    if (窗口->字体样式_主歌词_字重 != 新_主_字重 || 窗口->字体样式_主歌词_斜体 != 新_主_斜体 ||
+        窗口->字体样式_主歌词_下划线 != 新_主_下划线 || 窗口->字体样式_主歌词_删除线 != 新_主_删除线 ||
+        窗口->字体样式_副歌词_字重 != 新_副_字重 || 窗口->字体样式_副歌词_斜体 != 新_副_斜体 ||
+        窗口->字体样式_副歌词_下划线 != 新_副_下划线 || 窗口->字体样式_副歌词_删除线 != 新_副_删除线)
+    {
+        窗口->字体样式_主歌词_字重 = 新_主_字重;
+        窗口->字体样式_主歌词_斜体 = 新_主_斜体;
+        窗口->字体样式_主歌词_下划线 = 新_主_下划线;
+        窗口->字体样式_主歌词_删除线 = 新_主_删除线;
+        窗口->字体样式_副歌词_字重 = 新_副_字重;
+        窗口->字体样式_副歌词_斜体 = 新_副_斜体;
+        窗口->字体样式_副歌词_下划线 = 新_副_下划线;
+        窗口->字体样式_副歌词_删除线 = 新_副_删除线;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
@@ -131,10 +168,17 @@ void 网络服务器类::对齐(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->对齐方式_主歌词 = json["basic"].get<DWRITE_TEXT_ALIGNMENT>();
-    this->任务栏窗口->呈现窗口->对齐方式_副歌词 = json["extra"].get<DWRITE_TEXT_ALIGNMENT>();
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    DWRITE_TEXT_ALIGNMENT 新_主 = json["basic"].get<DWRITE_TEXT_ALIGNMENT>();
+    DWRITE_TEXT_ALIGNMENT 新_副 = json["extra"].get<DWRITE_TEXT_ALIGNMENT>();
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    if (窗口->对齐方式_主歌词 != 新_主 || 窗口->对齐方式_副歌词 != 新_副)
+    {
+        窗口->对齐方式_主歌词 = 新_主;
+        窗口->对齐方式_副歌词 = 新_副;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
@@ -145,9 +189,14 @@ void 网络服务器类::位置(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->窗口位置 = json["position"]["value"].get<WindowAlignment>();
+    WindowAlignment 新位置 = json["position"]["value"].get<WindowAlignment>();
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    if (this->任务栏窗口->呈现窗口->窗口位置 != 新位置)
+    {
+        this->任务栏窗口->呈现窗口->窗口位置 = 新位置;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
@@ -158,10 +207,17 @@ void 网络服务器类::边距(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->左边距 = json["left"].get<int>();
-    this->任务栏窗口->呈现窗口->右边距 = json["right"].get<int>();
+    int 新左 = json["left"].get<int>();
+    int 新右 = json["right"].get<int>();
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    if (窗口->左边距 != 新左 || 窗口->右边距 != 新右)
+    {
+        窗口->左边距 = 新左;
+        窗口->右边距 = 新右;
+        PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    }
+
     res.status = 200;
 }
 
