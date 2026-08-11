@@ -9,7 +9,17 @@ DEST_DIR = r"C:\betterncm\plugins"
 # 获取最新 release
 api = f"https://api.github.com/repos/{REPO}/releases/latest"
 release = requests.get(api).json()
-asset = next(a for a in release["assets"] if a["name"].endswith(".plugin"))
+
+if "assets" not in release or not release["assets"]:
+    print(f"错误: 最新 release 没有可下载的文件")
+    print(f"API 返回: {release}")
+    exit(1)
+
+asset = next((a for a in release["assets"] if a["name"].endswith(".plugin")), None)
+if not asset:
+    print(f"错误: release 中没有 .plugin 文件")
+    print(f"可用文件: {[a['name'] for a in release['assets']]}")
+    exit(1)
 
 print(f"版本: {release['tag_name']}")
 print(f"文件: {asset['name']} ({asset['size'] // 1024} KB)")
