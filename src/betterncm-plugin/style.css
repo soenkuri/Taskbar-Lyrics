@@ -189,3 +189,46 @@ body.s-theme-white #taskbar-lyrics-dom .content input.switch-btn:checked {
 #taskbar-lyrics-dom input.u-txt {
     border-radius: 4px;
 }
+
+
+
+/* 日志查看器 */
+#taskbar-lyrics-dom .log-container {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    padding: 8px;
+    height: 400px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+body.s-theme-white #taskbar-lyrics-dom .log-container {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+#taskbar-lyrics-dom .log-entry {
+    padding: 2px 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+#taskbar-lyrics-dom .log-entry .log-time {
+    color: rgba(255, 255, 255, 0.4);
+    margin-right: 8px;
+}
+
+body.s-theme-white #taskbar-lyrics-dom .log-entry .log-time {
+    color: rgba(0, 0, 0, 0.4);
+}
+
+#taskbar-lyrics-dom .log-entry.log-info { color: #8be9fd; }
+#taskbar-lyrics-dom .log-entry.log-success { color: #50fa7b; }
+#taskbar-lyrics-dom .log-entry.log-warn { color: #f1fa8c; }
+#taskbar-lyrics-dom .log-entry.log-error { color: #ff5555; }
+
+body.s-theme-white #taskbar-lyrics-dom .log-entry.log-info { color: #007acc; }
+body.s-theme-white #taskbar-lyrics-dom .log-entry.log-success { color: #22863a; }
+body.s-theme-white #taskbar-lyrics-dom .log-entry.log-warn { color: #b08800; }
+body.s-theme-white #taskbar-lyrics-dom .log-entry.log-error { color: #cb2431; }

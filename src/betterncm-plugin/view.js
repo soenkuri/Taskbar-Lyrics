@@ -385,4 +385,56 @@ plugin.onLoad(async () => {
         duration.value = pluginConfig.get("transition")["duration"];
         steps.value = pluginConfig.get("transition")["steps"];
     }
+
+
+    // 实时日志
+    {
+        const logEntries = configView.querySelector(".log-entries");
+        const logClear = configView.querySelector(".log-clear");
+        const logContainer = configView.querySelector(".log-container");
+        const logBuffer = [];
+
+        const addLog = (message, level = "info") => {
+            const now = new Date();
+            const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
+                .map(n => String(n).padStart(2, "0")).join(":");
+
+            const entry = document.createElement("div");
+            entry.className = `log-entry log-${level}`;
+
+            const timeSpan = document.createElement("span");
+            timeSpan.className = "log-time";
+            timeSpan.textContent = `[${time}]`;
+
+            const msgSpan = document.createElement("span");
+            msgSpan.textContent = ` ${message}`;
+
+            entry.appendChild(timeSpan);
+            entry.appendChild(msgSpan);
+
+            if (logEntries) {
+                logEntries.appendChild(entry);
+                // 限制最多保留200条
+                while (logEntries.children.length > 200)
+                    logEntries.removeChild(logEntries.firstChild);
+                // 仅在底部时自动滚动
+                if (logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 30)
+                    logContainer.scrollTop = logContainer.scrollHeight;
+            } else {
+                logBuffer.push(entry);
+            }
+        };
+
+        // 刷新缓冲区
+        if (logEntries) {
+            logBuffer.forEach(e => logEntries.appendChild(e));
+            logBuffer.length = 0;
+        }
+
+        logClear.addEventListener("click", () => {
+            if (logEntries) logEntries.innerHTML = "";
+        });
+
+        window.TaskbarLyricsLog = addLog;
+    }
 });

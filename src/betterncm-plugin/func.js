@@ -12,8 +12,12 @@ plugin.onLoad(async () => {
     const { startGetLyric, stopGetLyric } = { ...this.lyric };
 
 
+    const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
+
+
     // 启动任务栏歌词软件
     const TaskbarLyricsStart = async () => {
+        addLog("正在启动 C++ 程序...", "info");
         // 这BetterNCM获取的路径是不标准的会出问题，要替换掉下面那俩字符
         const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
@@ -22,6 +26,8 @@ plugin.onLoad(async () => {
         const exec = `"${dataPath}\\taskbar-lyrics.exe" ${TaskbarLyricsPort}`;
         const cmd = `${taskkill} & ${xcopy} && ${exec}`;
         await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+        addLog("C++ 程序已启动，端口: " + TaskbarLyricsPort, "success");
+        addLog("正在发送配置...", "info");
         TaskbarLyricsAPI.font.font(pluginConfig.get("font"));
         TaskbarLyricsAPI.font.color(pluginConfig.get("color"));
         TaskbarLyricsAPI.font.style(pluginConfig.get("style"));
@@ -30,12 +36,15 @@ plugin.onLoad(async () => {
         TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
         TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
         TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
+        addLog("配置发送完成", "success");
         startGetLyric();
+        addLog("歌词监听已启动", "success");
     };
 
 
     // 关闭任务栏歌词软件
     const TaskbarLyricsClose = async () => {
+        addLog("页面卸载，正在关闭 C++ 程序...", "warn");
         TaskbarLyricsAPI.close({});
         stopGetLyric();
     };

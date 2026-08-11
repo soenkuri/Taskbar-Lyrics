@@ -12,16 +12,21 @@ plugin.onLoad(async () => {
     let musicId = 0;
 
 
+    const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
+
+
     // 断线重连
     let 正在重连 = false;
     const reconnect = async () => {
         if (正在重连) return;
         正在重连 = true;
         currentIndex = 0;
+        addLog("检测到连接断开，正在重启 C++ 程序...", "error");
         const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
         const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
         await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+        addLog("C++ 程序已重启，正在发送配置...", "success");
         TaskbarLyricsAPI.font.font(pluginConfig.get("font"));
         TaskbarLyricsAPI.font.color(pluginConfig.get("color"));
         TaskbarLyricsAPI.font.style(pluginConfig.get("style"));
@@ -30,6 +35,7 @@ plugin.onLoad(async () => {
         TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
         TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
         TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
+        addLog("重连配置发送完成", "success");
         正在重连 = false;
     };
 
