@@ -10,6 +10,10 @@ plugin.onLoad(async () => {
     let parsedLyric = null;
     let currentIndex = 0;
     let musicId = 0;
+    let lastProgressTime = 0;
+    let interludeSent = false;
+    let isPaused = false;
+    let pauseDebounceTimer = null;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
@@ -135,27 +139,115 @@ plugin.onLoad(async () => {
         }
 
         currentIndex = 0;
+        interludeSent = false;
+    }
+
+
+    // 发送当前进度对应的歌词
+    const sendCurrentLyric = (time, force = false) => {
+        if (!parsedLyric) return;
+
+        const adjust = Number(pluginConfig.get("effect")["adjust"]);
+        let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
+        nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
+
+        // 间奏中（还没到下一句）或暂停中（非强制补发）不重新发送歌词
+        if (!force && ((interludeSent && nextIndex === currentIndex) || isPaused)) {
+            currentIndex = nextIndex;
+            return;
+        }
+
+        if (force || nextIndex != currentIndex) {
+            const currentLyric = parsedLyric[nextIndex - 1] ?? "";
+            const lyrics = {
+                "basic": currentLyric?.originalLyric ?? "",
+                "extra": currentLyric?.translatedLyric ?? ""
+            };
+            TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+            currentIndex = nextIndex;
+            interludeSent = false;
+        }
+    }
+
+
+    // 间奏检测：当前句唱完后距下一句超过阈值就发送空歌词
+    const checkInterlude = time => {
+        const hideConfig = pluginConfig.get("hide");
+        if (!hideConfig["enabled"] || !parsedLyric || interludeSent || isPaused) return;
+
+        const adjust = Number(pluginConfig.get("effect")["adjust"]);
+        const currentTime = (time + adjust) * 1000;
+
+        let nextIndex = parsedLyric.findIndex(item => item.time > currentTime);
+        nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
+
+        const currentLyric = parsedLyric[nextIndex - 1];
+        const nextLyric = parsedLyric[nextIndex];
+        if (!currentLyric || !nextLyric) return;
+
+        // 没有可信的 duration（或两句重叠）就无法确定句末，跳过
+        const duration = currentLyric.duration ?? 0;
+        const lineEnd = currentLyric.time + duration;
+        const gap = nextLyric.time - lineEnd;
+        if (duration <= 0 || gap < hideConfig["threshold"]) return;
+
+        // 已过句末且还没到下一句，进入间奏
+        if (currentTime >= lineEnd) {
+            interludeSent = true;
+            addLog(`进入间奏（空档 ${Math.round(gap)}ms），发送空歌词`, "info");
+            TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+        }
     }
 
 
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
-        const adjust = Number(pluginConfig.get("effect")["adjust"]);
-        if (parsedLyric) {
-            let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
-            nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
+        lastProgressTime = time;
+        sendCurrentLyric(time, false);
+        checkInterlude(time);
+    }
 
-            if (nextIndex != currentIndex) {
-                const currentLyric = parsedLyric[nextIndex - 1] ?? "";
 
-                const lyrics = {
-                    "basic": currentLyric?.originalLyric ?? "",
-                    "extra": currentLyric?.translatedLyric ?? ""
-                };
+    // 播放状态变化：暂停发空歌词，恢复立即补发当前歌词
+    const play_state = async state => {
+        let playing;
+        if (typeof state === "boolean") playing = state;
+        else if (typeof state === "number") playing = state !== 0;
+        else if (typeof state === "string") playing = (state === "play" || state === "playing");
+        else if (state && typeof state === "object") {
+            playing = state.playing ?? state.isPlaying ?? state.data?.playing;
+            const t = state.time ?? state.currentTime ?? state.data?.time;
+            if (typeof t === "number") lastProgressTime = t;
+        }
 
-                TaskbarLyricsAPI.lyrics.lyrics(lyrics);
-                currentIndex = nextIndex;
+        // 无法识别的状态格式，记日志方便排查
+        if (playing === undefined || playing === null) {
+            addLog(`[调试] PlayState 未知格式: ${JSON.stringify(state)}`, "warn");
+            return;
+        }
+
+        if (playing) {
+            // 恢复播放：若暂停防抖还没触发就取消，避免恢复瞬间先清空再补发的闪断
+            if (pauseDebounceTimer) {
+                clearTimeout(pauseDebounceTimer);
+                pauseDebounceTimer = null;
             }
+            if (isPaused) {
+                isPaused = false;
+                addLog("恢复播放，立即补发当前歌词", "info");
+                sendCurrentLyric(lastProgressTime, true);
+            }
+        } else {
+            // 暂停：防抖 500ms，过滤恢复瞬间可能出现的瞬时暂停事件
+            if (pauseDebounceTimer) clearTimeout(pauseDebounceTimer);
+            pauseDebounceTimer = setTimeout(() => {
+                pauseDebounceTimer = null;
+                if (isPaused) return;
+                isPaused = true;
+                interludeSent = false;
+                addLog("暂停播放，发送空歌词", "info");
+                TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+            }, 500);
         }
     }
 
@@ -174,6 +266,7 @@ plugin.onLoad(async () => {
             case 1: {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
                 const playingSong = betterncm.ncm.getPlayingSong();
                 if (playingSong && playingSong.data.id != musicId) {
                     play_load();
@@ -184,6 +277,7 @@ plugin.onLoad(async () => {
             case 2: {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
             } break;
         }
     }
@@ -191,6 +285,12 @@ plugin.onLoad(async () => {
 
     // 停止获取歌词
     function stopGetLyric() {
+        if (pauseDebounceTimer) {
+            clearTimeout(pauseDebounceTimer);
+            pauseDebounceTimer = null;
+        }
+        isPaused = false;
+        interludeSent = false;
         const config = pluginConfig.get("lyrics");
         switch (config["retrieval_method"]["value"]) {
             // 软件内词栏
@@ -205,12 +305,14 @@ plugin.onLoad(async () => {
             case 1: {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
 
             // RefinedNowPlaying
             case 2: {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
         }
     }

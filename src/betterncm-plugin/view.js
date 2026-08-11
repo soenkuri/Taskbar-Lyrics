@@ -54,6 +54,7 @@ plugin.onLoad(async () => {
         style,
         lyrics,
         effect,
+        hide,
         align,
         position,
         margin,
@@ -305,6 +306,28 @@ plugin.onLoad(async () => {
         reset.addEventListener("click", () => effect.reset(elements));
 
         adjust.value = pluginConfig.get("effect")["adjust"];
+    }
+
+
+    // 间奏隐藏
+    {
+        const apply = configView.querySelector(".content.lyrics .hide-settings .apply");
+        const reset = configView.querySelector(".content.lyrics .hide-settings .reset");
+
+        const hideEnabled = configView.querySelector(".content.lyrics .hide-settings .hide-enabled");
+        const hideThreshold = configView.querySelector(".content.lyrics .hide-settings .hide-threshold");
+
+        const elements = {
+            hideEnabled,
+            hideThreshold
+        }
+
+        apply.addEventListener("click", () => hide.apply(elements));
+        reset.addEventListener("click", () => hide.reset(elements));
+        hideEnabled.addEventListener("change", event => hide.setEnabled(event));
+
+        hideEnabled.checked = pluginConfig.get("hide")["enabled"];
+        hideThreshold.value = pluginConfig.get("hide")["threshold"];
     }
 
 
