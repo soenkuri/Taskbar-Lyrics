@@ -65,11 +65,6 @@
         KillTimer(*this->窗口句柄, this->淡入延迟定时器ID);
         this->淡入延迟定时器ID = 0;
     }
-    if (this->隐藏定时器ID)
-    {
-        KillTimer(*this->窗口句柄, this->隐藏定时器ID);
-        this->隐藏定时器ID = 0;
-    }
 
     this->D2D工厂->Release();
     this->D2D工厂 = nullptr;

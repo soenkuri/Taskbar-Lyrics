@@ -134,11 +134,66 @@ plugin.onLoad(async () => {
             parsedLyric = [];
         }
 
+        clearHideTimer();
         currentIndex = 0;
     }
 
 
     let lastProgressTime = 0;
+    let hideTimer = null;
+    let lastScheduledEndTime = -1;
+
+
+    // 取消隐藏定时器
+    const clearHideTimer = () => {
+        if (hideTimer) {
+            clearTimeout(hideTimer);
+            hideTimer = null;
+            lastScheduledEndTime = -1;
+        }
+    };
+
+
+    // 调度到时间后发送空歌词隐藏
+    const scheduleHide = (time, currentLyric, nextIndex) => {
+        const hideEnabled = pluginConfig.get("hide")["enabled"];
+        if (!hideEnabled || !currentLyric) {
+            clearHideTimer();
+            return;
+        }
+
+        const adjust = Number(pluginConfig.get("effect")["adjust"]);
+
+        // 若 liblyric 没给出 duration，用下一句开始时间推算
+        let duration = currentLyric?.duration;
+        if ((!duration || duration <= 0) && nextIndex < parsedLyric.length) {
+            duration = parsedLyric[nextIndex].time - currentLyric.time;
+        }
+        if (!duration || duration <= 0) {
+            clearHideTimer();
+            return;
+        }
+
+        const endTime = currentLyric.time + duration;
+        // 同一句歌词且结束时间没变就不重复调度，避免进度回调频繁重置
+        if (endTime === lastScheduledEndTime && hideTimer) return;
+
+        clearHideTimer();
+
+        const elapsed = (time + adjust) * 1000 - currentLyric.time;
+        const remaining = Math.max(0, duration - elapsed);
+
+        if (remaining > 0) {
+            lastScheduledEndTime = endTime;
+            hideTimer = setTimeout(() => {
+                hideTimer = null;
+                lastScheduledEndTime = -1;
+                if (!pluginConfig.get("hide")["enabled"]) return;
+                addLog("歌词显示时间到，发送空歌词隐藏", "info");
+                TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+            }, remaining);
+        }
+    };
 
 
     // 发送当前进度对应的歌词
@@ -150,35 +205,23 @@ plugin.onLoad(async () => {
         let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
         nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
-        if (force || nextIndex != currentIndex) {
-            const currentLyric = parsedLyric[nextIndex - 1] ?? "";
+        const currentLyric = parsedLyric[nextIndex - 1] ?? "";
 
+        if (force || nextIndex != currentIndex) {
             const lyrics = {
                 "basic": currentLyric?.originalLyric ?? "",
                 "extra": currentLyric?.translatedLyric ?? ""
             };
 
-            // 若 liblyric 没给出 duration，用下一句开始时间推算
-            let duration = currentLyric?.duration;
-            if (hideEnabled && (!duration || duration <= 0) && nextIndex < parsedLyric.length) {
-                duration = parsedLyric[nextIndex].time - currentLyric.time;
-            }
-
-            // 根据已播放进度扣减剩余显示时长
-            if (hideEnabled && duration > 0) {
-                const elapsed = (time + adjust) * 1000 - currentLyric.time;
-                const remaining = Math.max(0, duration - elapsed);
-                lyrics["duration"] = Math.round(remaining);
-            }
-
-            if (hideEnabled && lyrics.duration > 0) {
-                addLog(`发送歌词: "${lyrics.basic || "(空)"}"，剩余显示时长 ${lyrics.duration}ms`, "info");
-            } else {
-                addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
-            }
-
+            addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
             TaskbarLyricsAPI.lyrics.lyrics(lyrics);
             currentIndex = nextIndex;
+        }
+
+        if (hideEnabled) {
+            scheduleHide(time, currentLyric, nextIndex);
+        } else {
+            clearHideTimer();
         }
     }
 
@@ -215,7 +258,8 @@ plugin.onLoad(async () => {
             addLog("播放恢复，立即发送当前歌词", "info");
             sendCurrentLyric(time, true);
         } else {
-            addLog("暂停播放，清空歌词", "info");
+            addLog("暂停播放，清空歌词并取消隐藏定时器", "info");
+            clearHideTimer();
             TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
         }
     }
@@ -254,6 +298,7 @@ plugin.onLoad(async () => {
 
     // 停止获取歌词
     function stopGetLyric() {
+        clearHideTimer();
         const config = pluginConfig.get("lyrics");
         switch (config["retrieval_method"]["value"]) {
             // 软件内词栏

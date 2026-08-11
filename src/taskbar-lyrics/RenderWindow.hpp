@@ -10,7 +10,6 @@
 #define 淡入定时器 1
 #define 淡出定时器 2
 #define 淡入延迟定时器 3
-#define 隐藏定时器 4
 
 
 enum WindowAlignment
@@ -95,7 +94,6 @@ class 呈现窗口类
     UINT_PTR 淡入定时器ID = 0;
     UINT_PTR 淡出定时器ID = 0;
     UINT_PTR 淡入延迟定时器ID = 0;
-    UINT_PTR 隐藏定时器ID = 0;
     int 淡入动画进度 = 0;
     int 淡出动画进度 = 0;
     int 淡入总步数 = 24;
