@@ -170,8 +170,8 @@ plugin.onLoad(async () => {
     }
 
 
-    // 间奏检测：当前句唱完后距下一句超过阈值就发送空歌词
-    const checkInterlude = time => {
+    // 当前句播放完成后发送空歌词，直到下一句开始时恢复
+    const hideAfterCurrentLine = time => {
         const hideConfig = pluginConfig.get("hide");
         if (!hideConfig["enabled"] || !parsedLyric || interludeSent || isPaused) return;
 
@@ -182,19 +182,17 @@ plugin.onLoad(async () => {
         nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
         const currentLyric = parsedLyric[nextIndex - 1];
-        const nextLyric = parsedLyric[nextIndex];
-        if (!currentLyric || !nextLyric) return;
+        if (!currentLyric) return;
 
-        // 没有可信的 duration（或两句重叠）就无法确定句末，跳过
+        // 没有可信的 duration 就无法确定句末，跳过
         const duration = currentLyric.duration ?? 0;
         const lineEnd = currentLyric.time + duration;
-        const gap = nextLyric.time - lineEnd;
-        if (duration <= 0 || gap < hideConfig["threshold"]) return;
+        if (duration <= 0) return;
 
-        // 已过句末且还没到下一句，进入间奏
+        // 已过句末，在下一句开始前隐藏歌词
         if (currentTime >= lineEnd) {
             interludeSent = true;
-            addLog(`进入间奏（空档 ${Math.round(gap)}ms），发送空歌词`, "info");
+            addLog("当前歌词播放完成，发送空歌词", "info");
             TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
         }
     }
@@ -204,16 +202,23 @@ plugin.onLoad(async () => {
     const play_progress = async (_, time) => {
         lastProgressTime = time;
         sendCurrentLyric(time, false);
-        checkInterlude(time);
+        hideAfterCurrentLine(time);
     }
 
 
     // 播放状态变化：暂停发空歌词，恢复立即补发当前歌词
-    const play_state = async state => {
+    const play_state = async (_, state) => {
         let playing;
         if (typeof state === "boolean") playing = state;
         else if (typeof state === "number") playing = state !== 0;
-        else if (typeof state === "string") playing = (state === "play" || state === "playing");
+        else if (typeof state === "string") {
+            const normalizedState = state.trim().toLowerCase();
+            if (["play", "playing", "true", "1"].includes(normalizedState)) {
+                playing = true;
+            } else if (["pause", "paused", "false", "0"].includes(normalizedState)) {
+                playing = false;
+            }
+        }
         else if (state && typeof state === "object") {
             playing = state.playing ?? state.isPlaying ?? state.data?.playing;
             const t = state.time ?? state.currentTime ?? state.data?.time;

@@ -186,21 +186,15 @@ plugin.onLoad(async () => {
     }
 
 
-    // 间奏隐藏
+    // 逐句隐藏
     const hide = {
         setEnabled: event => {
             const config = JSON.parse(JSON.stringify(pluginConfig.get("hide")));
             config["enabled"] = event.target.checked;
             pluginConfig.set("hide", config);
         },
-        apply: elements => {
-            const config = JSON.parse(JSON.stringify(pluginConfig.get("hide")));
-            config["threshold"] = Number(elements.hideThreshold.value);
-            pluginConfig.set("hide", config);
-        },
         reset: elements => {
             elements.hideEnabled.checked = defaultConfig["hide"]["enabled"];
-            elements.hideThreshold.value = defaultConfig["hide"]["threshold"];
             pluginConfig.set("hide", undefined);
         }
     }
