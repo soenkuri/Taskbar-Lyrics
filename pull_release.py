@@ -40,3 +40,7 @@ time.sleep(3)
 # 重新启动网易云音乐
 subprocess.Popen([CLOUDMUSIC])
 print(f"已启动网易云音乐")
+
+# 删除下载文件
+os.remove(SOURCE)
+print(f"已删除 {SOURCE}")
