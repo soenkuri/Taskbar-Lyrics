@@ -92,6 +92,7 @@ class 呈现窗口类
 
 	public:
     void 更新窗口();
+    void 开始淡入动画();
 
 
     private:
@@ -101,5 +102,4 @@ class 呈现窗口类
 
     private:
     float DPI(UINT);
-    void 开始淡入动画();
 };
