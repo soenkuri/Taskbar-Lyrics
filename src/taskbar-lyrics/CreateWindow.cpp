@@ -230,7 +230,7 @@ LRESULT CALLBACK 任务栏窗口类::窗口过程(
             {
                 窗口->淡入动画进度++;
                 float t = static_cast<float>(窗口->淡入动画进度) / 窗口->淡入总步数;
-                窗口->歌词不透明度 = t * (2.0f - t);
+                窗口->歌词不透明度 = t * t;
                 PostMessage(窗口句柄, WM_PAINT, NULL, NULL);
             }
             else
