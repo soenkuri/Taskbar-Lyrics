@@ -213,9 +213,10 @@ plugin.onLoad(async () => {
         else if (typeof state === "number") playing = state !== 0;
         else if (typeof state === "string") {
             const normalizedState = state.trim().toLowerCase();
-            if (["play", "playing", "true", "1"].includes(normalizedState)) {
+            const stateFields = normalizedState.split("|");
+            if (["play", "playing", "resume", "resumed", "true", "1"].some(value => stateFields.includes(value))) {
                 playing = true;
-            } else if (["pause", "paused", "false", "0"].includes(normalizedState)) {
+            } else if (["pause", "paused", "false", "0"].some(value => stateFields.includes(value))) {
                 playing = false;
             }
         }
