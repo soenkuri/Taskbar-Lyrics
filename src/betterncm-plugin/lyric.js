@@ -10,7 +10,6 @@ plugin.onLoad(async () => {
     let parsedLyric = null;
     let currentIndex = 0;
     let musicId = 0;
-    let currentLine = 0;
 
 
     // 监视软件内歌词变动
@@ -107,58 +106,11 @@ plugin.onLoad(async () => {
 
             if (nextIndex != currentIndex) {
                 const currentLyric = parsedLyric[nextIndex - 1] ?? "";
-                const nextLyric = parsedLyric[nextIndex] ?? "";
 
                 const lyrics = {
                     "basic": currentLyric?.originalLyric ?? "",
-                    "extra": currentLyric?.translatedLyric ?? nextLyric?.originalLyric ?? ""
+                    "extra": currentLyric?.translatedLyric ?? ""
                 };
-
-                const extra_show_value = pluginConfig.get("effect")["extra_show"]["value"];
-                switch (extra_show_value) {
-                    case 0: {
-                        lyrics.extra = "";
-                    } break;
-
-                    case 1: {
-                        const next_line_lyrics_position_value = pluginConfig.get("effect")["next_line_lyrics_position"]["value"];
-                        switch (next_line_lyrics_position_value) {
-                            case 0: {
-                                lyrics.extra = nextLyric?.originalLyric ?? "";
-                            } break;
-
-                            case 1: {
-                                lyrics.basic = nextLyric?.originalLyric ?? "";
-                                lyrics.extra = currentLyric?.originalLyric ?? "";
-                            } break;
-
-                            case 2: {
-                                if (currentLine == 0) {
-                                    lyrics.basic = currentLyric?.originalLyric ?? "";
-                                    lyrics.extra = nextLyric?.originalLyric ?? "";
-                                    currentLine = 1;
-                                } else {
-                                    lyrics.basic = nextLyric?.originalLyric ?? "";
-                                    lyrics.extra = currentLyric?.originalLyric ?? "";
-                                    currentLine = 0;
-                                }
-                            } break;
-                        }
-                    } break;
-
-                    case 2: {
-                        lyrics.extra = currentLyric?.translatedLyric
-                            ?? nextLyric?.originalLyric
-                            ?? "";
-                    } break;
-
-                    case 3: {
-                        lyrics.extra = currentLyric?.romanLyric
-                            ?? currentLyric?.translatedLyric
-                            ?? nextLyric?.originalLyric
-                            ?? "";
-                    } break;
-                }
 
                 TaskbarLyricsAPI.lyrics.lyrics(lyrics);
                 currentIndex = nextIndex;

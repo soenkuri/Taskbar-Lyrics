@@ -259,39 +259,15 @@ plugin.onLoad(async () => {
         const apply = configView.querySelector(".content.lyrics .effect-settings .apply");
         const reset = configView.querySelector(".content.lyrics .effect-settings .reset");
 
-        const nextLineLyricsPositionValue = configView.querySelector(".content.lyrics .effect-settings .next-line-lyrics-position .value");
-        const nextLineLyricsPositionSelect = configView.querySelector(".content.lyrics .effect-settings .next-line-lyrics-position .select");
-        const extraShowValue = configView.querySelector(".content.lyrics .effect-settings .extra-show .value");
-        const extraShowSelect = configView.querySelector(".content.lyrics .effect-settings .extra-show .select");
         const adjust = configView.querySelector(".content.lyrics .effect-settings .adjust");
 
         const elements = {
-            nextLineLyricsPositionValue,
-            extraShowValue,
             adjust
         }
 
         apply.addEventListener("click", () => effect.apply(elements));
         reset.addEventListener("click", () => effect.reset(elements));
 
-        nextLineLyricsPositionValue.addEventListener("click", selectController);
-        nextLineLyricsPositionSelect.addEventListener("click", event => {
-            const value = event.target.dataset.value;
-            const textContent = event.target.textContent;
-            effect.setNextLineLyricsPosition(value, textContent);
-            nextLineLyricsPositionValue.textContent = textContent;
-        });
-
-        extraShowValue.addEventListener("click", selectController);
-        extraShowSelect.addEventListener("click", event => {
-            const value = event.target.dataset.value;
-            const textContent = event.target.textContent;
-            effect.setExtraShow(value, textContent);
-            extraShowValue.textContent = textContent;
-        });
-
-        nextLineLyricsPositionValue.textContent = pluginConfig.get("effect")["next_line_lyrics_position"]["textContent"];
-        extraShowValue.textContent = pluginConfig.get("effect")["extra_show"]["textContent"];
         adjust.value = pluginConfig.get("effect")["adjust"];
     }
 

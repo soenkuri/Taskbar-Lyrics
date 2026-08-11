@@ -164,26 +164,12 @@ plugin.onLoad(async () => {
 
     // 显示效果
     const effect = {
-        setNextLineLyricsPosition: (value, textContent) => {
-            const config = JSON.parse(JSON.stringify(pluginConfig.get("effect")));
-            config["next_line_lyrics_position"]["value"] = Number(value);
-            config["next_line_lyrics_position"]["textContent"] = textContent;
-            pluginConfig.set("effect", config);
-        },
-        setExtraShow: (value, textContent) => {
-            const config = JSON.parse(JSON.stringify(pluginConfig.get("effect")));
-            config["extra_show"]["value"] = Number(value);
-            config["extra_show"]["textContent"] = textContent;
-            pluginConfig.set("effect", config);
-        },
         apply: elements => {
             const config = JSON.parse(JSON.stringify(pluginConfig.get("effect")));
             config["adjust"] = Number(elements.adjust.value);
             pluginConfig.set("effect", config);
         },
         reset: elements => {
-            elements.nextLineLyricsPositionValue.textContent = defaultConfig["effect"]["next_line_lyrics_position"]["textContent"];
-            elements.extraShowValue.textContent = defaultConfig["effect"]["extra_show"]["textContent"];
             elements.adjust.value = defaultConfig["effect"]["adjust"];
             pluginConfig.set("effect", undefined);
         }

@@ -136,14 +136,6 @@ plugin.onLoad(async () => {
             }
         },
         "effect": {
-            "next_line_lyrics_position": {
-                "value": 0,
-                "textContent": "副歌词，下句歌词显示在这"
-            },
-            "extra_show": {
-                "value": 2,
-                "textContent": "当前翻译，没则用上个选项"
-            },
             "adjust": 0.0
         },
         "align": {
