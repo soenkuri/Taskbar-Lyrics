@@ -155,6 +155,7 @@ plugin.onLoad(async () => {
 
 
     // 调度到时间后发送空歌词隐藏
+    // 规则：当前句有明确结束时间，且与下一句空档 > 1 秒，才在句末隐藏
     const scheduleHide = (time, currentLyric, nextIndex) => {
         const hideEnabled = pluginConfig.get("hide")["enabled"];
         if (!hideEnabled || !currentLyric) {
@@ -164,12 +165,20 @@ plugin.onLoad(async () => {
 
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
 
-        // 若 liblyric 没给出 duration，用下一句开始时间推算
+        // 计算与下一句的空档
+        const gap = (nextIndex < parsedLyric.length)
+            ? parsedLyric[nextIndex].time - currentLyric.time
+            : 0;
+
+        // 取 liblyric 给出的 duration；若没有，就用到下一句的空档
         let duration = currentLyric?.duration;
-        if ((!duration || duration <= 0) && nextIndex < parsedLyric.length) {
-            duration = parsedLyric[nextIndex].time - currentLyric.time;
-        }
         if (!duration || duration <= 0) {
+            duration = gap;
+        }
+
+        // 空档不超过 1 秒，或当前句结束时间不早于下一句开始（重叠），则不隐藏
+        const gapAfterLine = gap - duration;
+        if (gap <= 1000 || gapAfterLine <= 0) {
             clearHideTimer();
             return;
         }
@@ -189,7 +198,7 @@ plugin.onLoad(async () => {
                 hideTimer = null;
                 lastScheduledEndTime = -1;
                 if (!pluginConfig.get("hide")["enabled"]) return;
-                addLog("歌词显示时间到，发送空歌词隐藏", "info");
+                addLog(`句末空档 ${Math.round(gapAfterLine)}ms，发送空歌词隐藏`, "info");
                 TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
             }, remaining);
         }
