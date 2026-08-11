@@ -8,6 +8,41 @@ configView.style.height = "100%";
 configView.style.width = "100%";
 
 
+// 日志基础设施（立即初始化，确保其他文件可用）
+const logBuffer = [];
+let logEntriesEl = null;
+let logContainerEl = null;
+
+window.TaskbarLyricsLog = (message, level = "info") => {
+    const now = new Date();
+    const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
+        .map(n => String(n).padStart(2, "0")).join(":");
+
+    const entry = document.createElement("div");
+    entry.className = `log-entry log-${level}`;
+
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "log-time";
+    timeSpan.textContent = `[${time}]`;
+
+    const msgSpan = document.createElement("span");
+    msgSpan.textContent = ` ${message}`;
+
+    entry.appendChild(timeSpan);
+    entry.appendChild(msgSpan);
+
+    if (logEntriesEl) {
+        logEntriesEl.appendChild(entry);
+        while (logEntriesEl.children.length > 200)
+            logEntriesEl.removeChild(logEntriesEl.firstChild);
+        if (logContainerEl.scrollTop + logContainerEl.clientHeight >= logContainerEl.scrollHeight - 30)
+            logContainerEl.scrollTop = logContainerEl.scrollHeight;
+    } else {
+        logBuffer.push(entry);
+    }
+};
+
+
 plugin.onConfig(tools => configView);
 
 
@@ -387,54 +422,20 @@ plugin.onLoad(async () => {
     }
 
 
-    // 实时日志
+    // 连接日志 DOM
     {
-        const logEntries = configView.querySelector(".log-entries");
+        logEntriesEl = configView.querySelector(".log-entries");
+        logContainerEl = configView.querySelector(".log-container");
         const logClear = configView.querySelector(".log-clear");
-        const logContainer = configView.querySelector(".log-container");
-        const logBuffer = [];
-
-        const addLog = (message, level = "info") => {
-            const now = new Date();
-            const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
-                .map(n => String(n).padStart(2, "0")).join(":");
-
-            const entry = document.createElement("div");
-            entry.className = `log-entry log-${level}`;
-
-            const timeSpan = document.createElement("span");
-            timeSpan.className = "log-time";
-            timeSpan.textContent = `[${time}]`;
-
-            const msgSpan = document.createElement("span");
-            msgSpan.textContent = ` ${message}`;
-
-            entry.appendChild(timeSpan);
-            entry.appendChild(msgSpan);
-
-            if (logEntries) {
-                logEntries.appendChild(entry);
-                // 限制最多保留200条
-                while (logEntries.children.length > 200)
-                    logEntries.removeChild(logEntries.firstChild);
-                // 仅在底部时自动滚动
-                if (logContainer.scrollTop + logContainer.clientHeight >= logContainer.scrollHeight - 30)
-                    logContainer.scrollTop = logContainer.scrollHeight;
-            } else {
-                logBuffer.push(entry);
-            }
-        };
 
         // 刷新缓冲区
-        if (logEntries) {
-            logBuffer.forEach(e => logEntries.appendChild(e));
+        if (logEntriesEl) {
+            logBuffer.forEach(e => logEntriesEl.appendChild(e));
             logBuffer.length = 0;
         }
 
         logClear.addEventListener("click", () => {
-            if (logEntries) logEntries.innerHTML = "";
+            if (logEntriesEl) logEntriesEl.innerHTML = "";
         });
-
-        window.TaskbarLyricsLog = addLog;
     }
 });
