@@ -14,9 +14,18 @@ plugin.onLoad(async () => {
     let interludeSent = false;
     let isPaused = false;
     let pauseDebounceTimer = null;
+    let lineEndTimer = null;
+    let lineEndTimerIndex = null;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
+
+
+    const clearLineEndTimer = () => {
+        if (lineEndTimer) clearTimeout(lineEndTimer);
+        lineEndTimer = null;
+        lineEndTimerIndex = null;
+    };
 
 
     // 断线重连
@@ -85,6 +94,8 @@ plugin.onLoad(async () => {
 
     // 音乐ID发生变化时
     const play_load = async () => {
+        clearLineEndTimer();
+
         // 获取歌曲信息
         const playingSong = betterncm.ncm.getPlayingSong();
         musicId = playingSong.data.id ?? 0;
@@ -120,7 +131,8 @@ plugin.onLoad(async () => {
             parsedLyric = liblyric.parseLyric(
                 lyricData?.lrc?.lyric ?? "",
                 lyricData?.tlyric?.lyric ?? "",
-                lyricData?.romalrc?.lyric ?? ""
+                lyricData?.romalrc?.lyric ?? "",
+                lyricData?.yrc?.lyric ?? ""
             );
         }
 
@@ -170,8 +182,10 @@ plugin.onLoad(async () => {
     }
 
 
-    // 当前句播放完成后发送空歌词，直到下一句开始时恢复
-    const hideAfterCurrentLine = time => {
+    // 逐字歌词提供实际句末时间，到点立即发送空歌词
+    const scheduleLineEndHide = time => {
+        clearLineEndTimer();
+
         const hideConfig = pluginConfig.get("hide");
         if (!hideConfig["enabled"] || !parsedLyric || interludeSent || isPaused) return;
 
@@ -181,19 +195,40 @@ plugin.onLoad(async () => {
         let nextIndex = parsedLyric.findIndex(item => item.time > currentTime);
         nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
-        const currentLyric = parsedLyric[nextIndex - 1];
+        const currentLyricIndex = nextIndex - 1;
+        const currentLyric = parsedLyric[currentLyricIndex];
         if (!currentLyric) return;
 
         // 没有可信的 duration 就无法确定句末，跳过
         const duration = currentLyric.duration ?? 0;
-        const lineEnd = currentLyric.time + duration;
+        const lineStart = currentLyric.dynamicLyricTime ?? currentLyric.time;
+        const lineEnd = lineStart + duration;
         if (duration <= 0) return;
 
-        // 已过句末，在下一句开始前隐藏歌词
-        if (currentTime >= lineEnd) {
+        const hideCurrentLine = () => {
+            const latestHideConfig = pluginConfig.get("hide");
+            if (
+                !latestHideConfig["enabled"]
+                || isPaused
+                || interludeSent
+                || currentIndex !== currentLyricIndex + 1
+            ) return;
+
             interludeSent = true;
             addLog("当前歌词播放完成，发送空歌词", "info");
             TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+        };
+
+        const delay = lineEnd - currentTime;
+        if (delay <= 0) {
+            hideCurrentLine();
+        } else {
+            lineEndTimerIndex = currentLyricIndex;
+            lineEndTimer = setTimeout(() => {
+                lineEndTimer = null;
+                if (lineEndTimerIndex !== currentLyricIndex) return;
+                hideCurrentLine();
+            }, delay);
         }
     }
 
@@ -202,7 +237,7 @@ plugin.onLoad(async () => {
     const play_progress = async (_, time) => {
         lastProgressTime = time;
         sendCurrentLyric(time, false);
-        hideAfterCurrentLine(time);
+        scheduleLineEndHide(time);
     }
 
 
@@ -243,8 +278,10 @@ plugin.onLoad(async () => {
                 addLog("恢复播放，立即补发当前歌词", "info");
                 sendCurrentLyric(lastProgressTime, true);
             }
+            scheduleLineEndHide(lastProgressTime);
         } else {
             // 暂停：防抖 500ms，过滤恢复瞬间可能出现的瞬时暂停事件
+            clearLineEndTimer();
             if (pauseDebounceTimer) clearTimeout(pauseDebounceTimer);
             pauseDebounceTimer = setTimeout(() => {
                 pauseDebounceTimer = null;
@@ -295,6 +332,7 @@ plugin.onLoad(async () => {
             clearTimeout(pauseDebounceTimer);
             pauseDebounceTimer = null;
         }
+        clearLineEndTimer();
         isPaused = false;
         interludeSent = false;
         const config = pluginConfig.get("lyrics");
