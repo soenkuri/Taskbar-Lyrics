@@ -308,6 +308,22 @@ plugin.onLoad(async () => {
     }
 
 
+    // 唱完隐藏
+    {
+        const reset = configView.querySelector(".content.lyrics .hide-settings .reset");
+        const hideEnabled = configView.querySelector(".content.lyrics .hide-settings .hide-enabled");
+
+        const elements = {
+            hideEnabled
+        }
+
+        reset.addEventListener("click", () => hide.reset(elements));
+        hideEnabled.addEventListener("change", event => hide.setEnabled(event));
+
+        hideEnabled.checked = pluginConfig.get("hide")["enabled"];
+    }
+
+
     // 对齐方式
     {
         const reset = configView.querySelector(".content.lyrics .align-settings .reset");

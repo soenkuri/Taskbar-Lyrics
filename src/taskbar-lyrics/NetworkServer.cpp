@@ -166,6 +166,26 @@ void 网络服务器类::歌词(
         json["extra"].get<std::string>()
     );
 
+    // 处理唱完隐藏定时器
+    if (窗口->隐藏定时器ID)
+    {
+        KillTimer(this->任务栏窗口->窗口句柄, 窗口->隐藏定时器ID);
+        窗口->隐藏定时器ID = 0;
+    }
+    if (json.contains("duration"))
+    {
+        int 显示时长 = json["duration"].get<int>();
+        if (显示时长 > 0)
+        {
+            窗口->隐藏定时器ID = SetTimer(
+                this->任务栏窗口->窗口句柄,
+                隐藏定时器,
+                显示时长,
+                NULL
+            );
+        }
+    }
+
     PostMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
     res.status = 200;
 }

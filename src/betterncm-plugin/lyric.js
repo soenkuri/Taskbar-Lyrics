@@ -141,6 +141,7 @@ plugin.onLoad(async () => {
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
+        const hideEnabled = pluginConfig.get("hide")["enabled"];
         if (parsedLyric) {
             let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
             nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
@@ -152,6 +153,13 @@ plugin.onLoad(async () => {
                     "basic": currentLyric?.originalLyric ?? "",
                     "extra": currentLyric?.translatedLyric ?? ""
                 };
+
+                if (hideEnabled && currentLyric?.duration > 0) {
+                    lyrics["duration"] = Math.round(currentLyric.duration);
+                    addLog(`发送歌词: "${lyrics.basic || "(空)"}"，显示时长 ${lyrics.duration}ms`, "info");
+                } else {
+                    addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
+                }
 
                 TaskbarLyricsAPI.lyrics.lyrics(lyrics);
                 currentIndex = nextIndex;

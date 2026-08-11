@@ -144,6 +144,9 @@ plugin.onLoad(async () => {
         "effect": {
             "adjust": 0.0
         },
+        "hide": {
+            "enabled": false
+        },
         "align": {
             "basic": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER,
             "extra": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER

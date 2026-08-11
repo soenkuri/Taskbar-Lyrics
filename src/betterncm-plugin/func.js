@@ -186,6 +186,20 @@ plugin.onLoad(async () => {
     }
 
 
+    // 唱完隐藏
+    const hide = {
+        setEnabled: event => {
+            const config = JSON.parse(JSON.stringify(pluginConfig.get("hide")));
+            config["enabled"] = event.target.checked;
+            pluginConfig.set("hide", config);
+        },
+        reset: elements => {
+            elements.hideEnabled.checked = defaultConfig["hide"]["enabled"];
+            pluginConfig.set("hide", undefined);
+        }
+    }
+
+
     // 对齐方式
     const align = {
         setLeft: event => {
@@ -302,6 +316,7 @@ plugin.onLoad(async () => {
         style,
         lyrics,
         effect,
+        hide,
         align,
         position,
         margin,

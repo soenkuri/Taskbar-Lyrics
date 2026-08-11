@@ -22,7 +22,7 @@ for proc in ["cloudmusic.exe", "taskbar-lyrics.exe"]:
     subprocess.run(["taskkill", "/F", "/IM", proc], capture_output=True)
     print(f"已终止 {proc}")
 
-time.sleep(1)
+time.sleep(5)
 
 # 清理文件
 exe_path = r"C:\betterncm\taskbar-lyrics.exe"
