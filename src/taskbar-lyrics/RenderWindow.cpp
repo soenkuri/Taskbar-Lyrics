@@ -160,12 +160,33 @@ void 呈现窗口类::绘制窗口(
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, 宽, 高);
     HBITMAP oldBitmap = HBITMAP(SelectObject(memDC, memBitmap));
 
-    this->绘制歌词(memDC, rect);
+    if (this->淡入定时器ID)
+    {
+        // 交叉淡入淡出：先绘制旧歌词（淡出），再绘制新歌词（淡入）
+        std::wstring 临时主 = this->主歌词;
+        std::wstring 临时副 = this->副歌词;
+
+        // 绘制旧歌词（淡出）
+        this->主歌词 = this->旧主歌词;
+        this->副歌词 = this->旧副歌词;
+        this->歌词不透明度 = 1.0f - this->歌词不透明度;
+        this->绘制歌词(memDC, rect);
+        this->歌词不透明度 = 1.0f - this->歌词不透明度;
+
+        // 恢复新歌词（淡入）
+        this->主歌词 = 临时主;
+        this->副歌词 = 临时副;
+        this->绘制歌词(memDC, rect);
+    }
+    else
+    {
+        this->绘制歌词(memDC, rect);
+    }
 
     BLENDFUNCTION blend = {
         AC_SRC_OVER,
         0,
-        static_cast<BYTE>(255 * this->歌词不透明度),
+        255,
         AC_SRC_ALPHA
     };
 
@@ -234,7 +255,9 @@ void 呈现窗口类::绘制歌词(
         this->DWrite主歌词文本布局->SetTextAlignment(this->对齐方式_主歌词);
         this->DWrite主歌词文本布局->SetUnderline(this->字体样式_主歌词_下划线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         this->DWrite主歌词文本布局->SetStrikethrough(this->字体样式_主歌词_删除线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
-        this->D2D纯色笔刷->SetColor(this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词);
+        D2D1::ColorF 主颜色 = this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词;
+        主颜色.a *= this->歌词不透明度;
+        this->D2D纯色笔刷->SetColor(主颜色);
 
         //绘制文字显示
         this->D2D呈现目标->DrawTextLayout(
@@ -288,9 +311,11 @@ void 呈现窗口类::绘制歌词(
         this->DWrite主歌词文本布局->SetTextAlignment(this->对齐方式_主歌词);
         this->DWrite主歌词文本布局->SetUnderline(this->字体样式_主歌词_下划线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         this->DWrite主歌词文本布局->SetStrikethrough(this->字体样式_主歌词_删除线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
-        this->D2D纯色笔刷->SetColor(this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词);
+        D2D1::ColorF 主颜色 = this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词;
+        主颜色.a *= this->歌词不透明度;
+        this->D2D纯色笔刷->SetColor(主颜色);
 
-        //绘制文字显示
+        //绘制主文字
         this->D2D呈现目标->DrawTextLayout(
             D2D1::Point2F(主歌词_矩形.left, 主歌词_矩形.top),
             this->DWrite主歌词文本布局,
@@ -337,7 +362,9 @@ void 呈现窗口类::绘制歌词(
         this->DWrite副歌词文本布局->SetTextAlignment(this->对齐方式_副歌词);
         this->DWrite副歌词文本布局->SetUnderline(this->字体样式_副歌词_下划线, DWRITE_TEXT_RANGE{0, this->副歌词.size()});
         this->DWrite副歌词文本布局->SetStrikethrough(this->字体样式_副歌词_删除线, DWRITE_TEXT_RANGE{0, this->副歌词.size()});
-        this->D2D纯色笔刷->SetColor(this->深浅模式 ? this->字体颜色_浅色_副歌词 : this->字体颜色_深色_副歌词);
+        D2D1::ColorF 副颜色 = this->深浅模式 ? this->字体颜色_浅色_副歌词 : this->字体颜色_深色_副歌词;
+        副颜色.a *= this->歌词不透明度;
+        this->D2D纯色笔刷->SetColor(副颜色);
 
         //绘制文字显示
         this->D2D呈现目标->DrawTextLayout(
@@ -372,13 +399,18 @@ float 呈现窗口类::DPI(
 
 void 呈现窗口类::开始淡入动画()
 {
-    this->歌词不透明度 = 0.0f;
-    this->淡入动画进度 = 0;
+    // 保存当前歌词作为旧歌词（用于交叉淡入淡出）
+    this->旧主歌词 = this->主歌词;
+    this->旧副歌词 = this->副歌词;
 
     if (this->淡入定时器ID)
     {
         KillTimer(*this->窗口句柄, this->淡入定时器ID);
     }
+
+    this->淡入动画进度 = 1;
+    float t = static_cast<float>(this->淡入动画进度) / this->淡入总步数;
+    this->歌词不透明度 = t * (2.0f - t);
 
     this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 30, NULL);
     PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
