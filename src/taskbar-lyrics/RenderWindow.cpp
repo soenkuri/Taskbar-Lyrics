@@ -110,20 +110,9 @@ void 呈现窗口类::更新窗口()
 
         case WindowAlignment::WindowAlignmentCenter:
         {
-            int center = (this->任务栏_矩形.right - this->任务栏_矩形.left) / 2;
-            int lw = this->活动区域_矩形.right - this->开始按钮_矩形.left;
-            int rw = this->通知区域_矩形.right - this->通知区域_矩形.left;
-
-            if (lw > rw)
-            {
-                左 = lw + this->左边距;
-                宽 = (center - lw) * 2 - this->左边距 - this->右边距;
-            }
-            else
-            {
-                左 = center - (center - rw) + this->左边距;
-                宽 = (center - rw) * 2 - this->左边距 - this->右边距;
-            }
+            // 居中显示：窗口占满任务栏全宽，文字通过 DWRITE_TEXT_ALIGNMENT_CENTER 居中对齐
+            左 = this->任务栏_矩形.left + this->左边距;
+            宽 = this->任务栏_矩形.right - this->任务栏_矩形.left - this->左边距 - this->右边距;
         }
         break;
 
