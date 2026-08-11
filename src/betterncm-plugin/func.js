@@ -193,8 +193,17 @@ plugin.onLoad(async () => {
             config["enabled"] = event.target.checked;
             pluginConfig.set("hide", config);
         },
+        apply: elements => {
+            const config = JSON.parse(JSON.stringify(pluginConfig.get("hide")));
+            const minimumGap = Number(elements.minimumGap.value);
+            config["minimum_gap"] = Number.isFinite(minimumGap)
+                ? Math.min(Math.max(minimumGap, 0), 5000)
+                : defaultConfig["hide"]["minimum_gap"];
+            pluginConfig.set("hide", config);
+        },
         reset: elements => {
             elements.hideEnabled.checked = defaultConfig["hide"]["enabled"];
+            elements.minimumGap.value = defaultConfig["hide"]["minimum_gap"];
             pluginConfig.set("hide", undefined);
         }
     }

@@ -16,6 +16,7 @@ plugin.onLoad(async () => {
     let pauseDebounceTimer = null;
     let lineEndTimer = null;
     let lineEndTimerIndex = null;
+    let hideDebounceTimer = null;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
@@ -23,8 +24,10 @@ plugin.onLoad(async () => {
 
     const clearLineEndTimer = () => {
         if (lineEndTimer) clearTimeout(lineEndTimer);
+        if (hideDebounceTimer) clearTimeout(hideDebounceTimer);
         lineEndTimer = null;
         lineEndTimerIndex = null;
+        hideDebounceTimer = null;
     };
 
 
@@ -182,7 +185,7 @@ plugin.onLoad(async () => {
     }
 
 
-    // 逐字歌词提供实际句末时间，到点立即发送空歌词
+    // 逐字歌词提供实际句末时间，仅在存在足够空档时发送空歌词
     const scheduleLineEndHide = time => {
         clearLineEndTimer();
 
@@ -201,9 +204,20 @@ plugin.onLoad(async () => {
 
         // 没有可信的 duration 就无法确定句末，跳过
         const duration = currentLyric.duration ?? 0;
-        const lineStart = currentLyric.dynamicLyricTime ?? currentLyric.time;
+        const lineStart = currentLyric.dynamicLyricTime;
         const lineEnd = lineStart + duration;
-        if (duration <= 0) return;
+        const nextLyric = parsedLyric[currentLyricIndex + 1];
+        const nextLineStart = nextLyric?.dynamicLyricTime;
+        const minimumGap = Number(hideConfig["minimum_gap"]);
+        const gap = nextLineStart - lineEnd;
+
+        // 普通 LRC 没有真实句末，短空档也不值得触发淡出动画
+        if (
+            typeof lineStart !== "number"
+            || typeof nextLineStart !== "number"
+            || duration <= 0
+            || gap < (Number.isFinite(minimumGap) ? minimumGap : 400)
+        ) return;
 
         const hideCurrentLine = () => {
             const latestHideConfig = pluginConfig.get("hide");
@@ -219,15 +233,24 @@ plugin.onLoad(async () => {
             TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
         };
 
+        const queueHideCurrentLine = () => {
+            // 留出短暂窗口让紧接着到来的下一句取消隐藏
+            hideDebounceTimer = setTimeout(() => {
+                hideDebounceTimer = null;
+                if (lineEndTimerIndex !== currentLyricIndex) return;
+                hideCurrentLine();
+            }, 100);
+        };
+
         const delay = lineEnd - currentTime;
+        lineEndTimerIndex = currentLyricIndex;
         if (delay <= 0) {
-            hideCurrentLine();
+            queueHideCurrentLine();
         } else {
-            lineEndTimerIndex = currentLyricIndex;
             lineEndTimer = setTimeout(() => {
                 lineEndTimer = null;
                 if (lineEndTimerIndex !== currentLyricIndex) return;
-                hideCurrentLine();
+                queueHideCurrentLine();
             }, delay);
         }
     }

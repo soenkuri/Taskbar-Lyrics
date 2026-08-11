@@ -145,7 +145,8 @@ plugin.onLoad(async () => {
             "adjust": 0.0
         },
         "hide": {
-            "enabled": false
+            "enabled": false,
+            "minimum_gap": 400
         },
         "align": {
             "basic": WindowsEnum.DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER,

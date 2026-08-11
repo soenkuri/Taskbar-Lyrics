@@ -311,18 +311,24 @@ plugin.onLoad(async () => {
 
     // 逐句隐藏
     {
+        const apply = configView.querySelector(".content.lyrics .hide-settings .apply");
         const reset = configView.querySelector(".content.lyrics .hide-settings .reset");
 
         const hideEnabled = configView.querySelector(".content.lyrics .hide-settings .hide-enabled");
+        const minimumGap = configView.querySelector(".content.lyrics .hide-settings .minimum-gap");
 
         const elements = {
-            hideEnabled
+            hideEnabled,
+            minimumGap
         }
 
+        apply.addEventListener("click", () => hide.apply(elements));
         reset.addEventListener("click", () => hide.reset(elements));
         hideEnabled.addEventListener("change", event => hide.setEnabled(event));
 
-        hideEnabled.checked = pluginConfig.get("hide")["enabled"];
+        const hideConfig = pluginConfig.get("hide");
+        hideEnabled.checked = hideConfig["enabled"];
+        minimumGap.value = hideConfig["minimum_gap"];
     }
 
 
