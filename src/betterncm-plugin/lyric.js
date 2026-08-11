@@ -133,13 +133,6 @@ plugin.onLoad(async () => {
         artists.forEach(item => artistName += ` / ${item.name}`);
         artistName = artistName.slice(3);
 
-        // 发送歌曲信息
-        TaskbarLyricsAPI.lyrics.lyrics({
-            "basic": name,
-            "extra": artistName
-        });
-
-
         // 解析歌词
         const config = pluginConfig.get("lyrics");
         if ((config["retrieval_method"]["value"] == "2") && window.currentLyrics) {
@@ -173,14 +166,21 @@ plugin.onLoad(async () => {
         }
 
 
-        // 纯音乐只显示歌曲名与作曲家
-        if (
-            (parsedLyric.length == 1)
-            && (parsedLyric[0].time == 0)
-            && (parsedLyric[0].duration != 0)
-        ) {
-            parsedLyric = [];
+        // 有效歌词不超过三行时视为未获取到歌词，不显示歌曲信息或歌词
+        const lyricLineCount = parsedLyric.filter(item => item.originalLyric?.trim()).length;
+        if (lyricLineCount <= 3) {
+            parsedLyric = null;
+            currentIndex = 0;
+            interludeSent = false;
+            TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+            return;
         }
+
+        // 仅在有效歌词达到阈值后发送歌曲信息
+        TaskbarLyricsAPI.lyrics.lyrics({
+            "basic": name,
+            "extra": artistName
+        });
 
         currentIndex = 0;
         interludeSent = false;
