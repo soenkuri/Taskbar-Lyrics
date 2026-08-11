@@ -1,6 +1,7 @@
 import requests
 import os
 import shutil
+import subprocess
 
 REPO = "soenkuri/Taskbar-Lyrics"
 DEST_DIR = r"C:\betterncm\plugins"
@@ -22,3 +23,19 @@ with requests.get(asset["browser_download_url"], stream=True) as r:
             f.write(chunk)
 
 print(f"已保存到 {dest}")
+
+# 停止进程
+for proc in ["cloudmusic.exe", "taskbar-lyrics.exe"]:
+    subprocess.run(["taskkill", "/F", "/IM", proc], capture_output=True)
+    print(f"已终止 {proc}")
+
+# 清理文件
+exe_path = r"C:\betterncm\taskbar-lyrics.exe"
+if os.path.exists(exe_path):
+    os.remove(exe_path)
+    print(f"已删除 {exe_path}")
+
+runtime_dir = r"C:\betterncm\plugins_runtime\Taskbar-Lyrics"
+if os.path.exists(runtime_dir):
+    shutil.rmtree(runtime_dir)
+    print(f"已删除 {runtime_dir}")
