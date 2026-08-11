@@ -151,10 +151,17 @@ void 网络服务器类::歌词(
 ) {
     auto json = nlohmann::json::parse(req.body);
 
-    this->任务栏窗口->呈现窗口->主歌词 = this->字符转换.from_bytes(
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+
+    // 先保存旧歌词（用于交叉淡入淡出）
+    窗口->旧主歌词 = 窗口->主歌词;
+    窗口->旧副歌词 = 窗口->副歌词;
+
+    // 再更新为新歌词
+    窗口->主歌词 = this->字符转换.from_bytes(
         json["basic"].get<std::string>()
     );
-    this->任务栏窗口->呈现窗口->副歌词 = this->字符转换.from_bytes(
+    窗口->副歌词 = this->字符转换.from_bytes(
         json["extra"].get<std::string>()
     );
 
