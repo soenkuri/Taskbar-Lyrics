@@ -54,6 +54,7 @@ plugin.onLoad(async () => {
         style,
         lyrics,
         effect,
+        hide,
         align,
         position,
         margin,
