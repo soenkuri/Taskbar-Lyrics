@@ -154,8 +154,16 @@ plugin.onLoad(async () => {
                     "extra": currentLyric?.translatedLyric ?? ""
                 };
 
-                if (hideEnabled && currentLyric?.duration > 0) {
-                    lyrics["duration"] = Math.round(currentLyric.duration);
+                // 若 liblyric 没给出 duration，用下一句开始时间推算
+                let duration = currentLyric?.duration;
+                if (hideEnabled && (!duration || duration <= 0) && nextIndex < parsedLyric.length) {
+                    duration = parsedLyric[nextIndex].time - currentLyric.time;
+                }
+
+                addLog(`[调试] hideEnabled=${hideEnabled}, duration=${currentLyric?.duration}, 计算后=${duration}`, "info");
+
+                if (hideEnabled && duration > 0) {
+                    lyrics["duration"] = Math.round(duration);
                     addLog(`发送歌词: "${lyrics.basic || "(空)"}"，显示时长 ${lyrics.duration}ms`, "info");
                 } else {
                     addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
