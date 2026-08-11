@@ -39,6 +39,9 @@ plugin.onLoad(async () => {
         // 过渡动画
         animation: params => TaskbarLyricsFetch("/animation", params),
 
+        // 心跳
+        ping: params => TaskbarLyricsFetch("/ping", params),
+
         // 关闭
         close: params => TaskbarLyricsFetch("/close", params)
     };

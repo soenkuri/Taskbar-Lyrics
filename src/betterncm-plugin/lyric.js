@@ -13,7 +13,11 @@ plugin.onLoad(async () => {
 
 
     // 断线重连
+    let 正在重连 = false;
     const reconnect = async () => {
+        if (正在重连) return;
+        正在重连 = true;
+        currentIndex = 0;
         const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
         const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
@@ -26,7 +30,21 @@ plugin.onLoad(async () => {
         TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
         TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
         TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
+        正在重连 = false;
     };
+
+
+    // 心跳保活
+    setInterval(async () => {
+        try {
+            await Promise.race([
+                TaskbarLyricsAPI.ping({}),
+                new Promise((_, reject) => setTimeout(() => reject(new Error()), 3000))
+            ]);
+        } catch {
+            await reconnect();
+        }
+    }, 5000);
 
 
     // 监视软件内歌词变动
@@ -129,13 +147,7 @@ plugin.onLoad(async () => {
                     "extra": currentLyric?.translatedLyric ?? ""
                 };
 
-                try {
-                    const res = await TaskbarLyricsAPI.lyrics.lyrics(lyrics);
-                    if (!res.ok) throw new Error();
-                } catch {
-                    await reconnect();
-                    try { TaskbarLyricsAPI.lyrics.lyrics(lyrics); } catch {}
-                }
+                TaskbarLyricsAPI.lyrics.lyrics(lyrics);
                 currentIndex = nextIndex;
             }
         }
