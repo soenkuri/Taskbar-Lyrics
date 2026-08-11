@@ -157,7 +157,7 @@ void 网络服务器类::歌词(
         json["extra"].get<std::string>()
     );
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    PostMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
     res.status = 200;
 }
 

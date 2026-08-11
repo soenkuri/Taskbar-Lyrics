@@ -6,6 +6,9 @@
 #include <string>
 
 
+#define WM_FADE_START (WM_USER + 1)
+
+
 enum WindowAlignment
 {
     WindowAlignmentAdaptive = 0,
@@ -83,6 +86,9 @@ class 呈现窗口类
     DWRITE_TEXT_ALIGNMENT 对齐方式_主歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;
     DWRITE_TEXT_ALIGNMENT 对齐方式_副歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;
 
+    float 歌词不透明度 = 1.0f;
+    UINT_PTR 淡入定时器ID = 0;
+
 
 	public:
     void 更新窗口();
@@ -95,4 +101,5 @@ class 呈现窗口类
 
     private:
     float DPI(UINT);
+    void 开始淡入动画();
 };

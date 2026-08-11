@@ -48,6 +48,12 @@
 
 呈现窗口类::~呈现窗口类()
 {
+    if (this->淡入定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡入定时器ID);
+        this->淡入定时器ID = 0;
+    }
+
     this->D2D工厂->Release();
     this->D2D工厂 = nullptr;
 
@@ -159,7 +165,7 @@ void 呈现窗口类::绘制窗口(
     BLENDFUNCTION blend = {
         AC_SRC_OVER,
         0,
-        255,
+        static_cast<BYTE>(255 * this->歌词不透明度),
         AC_SRC_ALPHA
     };
 
@@ -361,4 +367,18 @@ float 呈现窗口类::DPI(
     auto 屏幕DPI = GetDpiForWindow(*this->窗口句柄);
     auto 新像素大小 = static_cast<float>(像素大小 * 屏幕DPI / 96);
     return 新像素大小;
+}
+
+
+void 呈现窗口类::开始淡入动画()
+{
+    this->歌词不透明度 = 0.0f;
+
+    if (this->淡入定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡入定时器ID);
+    }
+
+    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 30, NULL);
+    PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
 }

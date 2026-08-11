@@ -223,6 +223,29 @@ LRESULT CALLBACK 任务栏窗口类::窗口过程(
         };
         break;
 
+        case WM_TIMER:
+        {
+            auto& 窗口 = 任务栏窗口类::任务栏窗口->呈现窗口;
+            if (窗口->歌词不透明度 < 1.0f)
+            {
+                窗口->歌词不透明度 += 0.2f;
+                if (窗口->歌词不透明度 > 1.0f) 窗口->歌词不透明度 = 1.0f;
+                PostMessage(窗口句柄, WM_PAINT, NULL, NULL);
+            }
+            else
+            {
+                KillTimer(窗口句柄, 窗口->淡入定时器ID);
+                窗口->淡入定时器ID = 0;
+            }
+        };
+        break;
+
+        case WM_FADE_START:
+        {
+            任务栏窗口类::任务栏窗口->呈现窗口->开始淡入动画();
+        };
+        break;
+
         case WM_ERASEBKGND:
         {
             return 0;
