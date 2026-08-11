@@ -320,7 +320,9 @@ plugin.onLoad(async () => {
         reset.addEventListener("click", () => hide.reset(elements));
         hideEnabled.addEventListener("change", event => hide.setEnabled(event));
 
-        hideEnabled.checked = pluginConfig.get("hide")["enabled"];
+        const hideConfig = pluginConfig.get("hide");
+        hideEnabled.checked = hideConfig["enabled"];
+        window.TaskbarLyricsLog?.(`唱完隐藏初始状态: ${hideConfig["enabled"] ? "开启" : "关闭"}`, "info");
     }
 
 

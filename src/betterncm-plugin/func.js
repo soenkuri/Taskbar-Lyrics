@@ -189,13 +189,16 @@ plugin.onLoad(async () => {
     // 唱完隐藏
     const hide = {
         setEnabled: event => {
+            const checked = event.target.checked;
             const config = JSON.parse(JSON.stringify(pluginConfig.get("hide")));
-            config["enabled"] = event.target.checked;
+            config["enabled"] = checked;
             pluginConfig.set("hide", config);
+            addLog(`唱完隐藏开关: ${checked ? "开启" : "关闭"}`, "info");
         },
         reset: elements => {
             elements.hideEnabled.checked = defaultConfig["hide"]["enabled"];
             pluginConfig.set("hide", undefined);
+            addLog("唱完隐藏恢复默认", "info");
         }
     }
 
