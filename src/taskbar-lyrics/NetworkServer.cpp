@@ -24,6 +24,7 @@
         this->网络服务器.Post("/taskbar/window/position", handler(&网络服务器类::位置));
         this->网络服务器.Post("/taskbar/window/margin", handler(&网络服务器类::边距));
         this->网络服务器.Post("/taskbar/window/screen", handler(&网络服务器类::屏幕));
+        this->网络服务器.Post("/taskbar/animation", handler(&网络服务器类::过渡动画));
         this->网络服务器.Post("/taskbar/close", handler(&网络服务器类::关闭));
         this->网络服务器.listen("127.0.0.1", 端口);
     };
@@ -238,6 +239,26 @@ void 网络服务器类::屏幕(
     SetParent(this->任务栏窗口->窗口句柄, this->任务栏窗口->呈现窗口->任务栏_句柄);
 
     PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    res.status = 200;
+}
+
+
+void 网络服务器类::过渡动画(
+    const httplib::Request& req,
+    httplib::Response& res
+) {
+    auto json = nlohmann::json::parse(req.body);
+
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    int 新时长 = json["duration"].get<int>();
+    int 新步数 = json["steps"].get<int>();
+
+    if (窗口->过渡时长 != 新时长 || 窗口->淡入总步数 != 新步数)
+    {
+        窗口->过渡时长 = 新时长;
+        窗口->淡入总步数 = 新步数;
+    }
+
     res.status = 200;
 }
 

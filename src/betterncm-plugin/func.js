@@ -29,6 +29,7 @@ plugin.onLoad(async () => {
         TaskbarLyricsAPI.window.margin(pluginConfig.get("margin"));
         TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
         TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
+        TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
         startGetLyric();
     };
 
@@ -255,6 +256,24 @@ plugin.onLoad(async () => {
     }
 
 
+    // 过渡动画
+    const transition = {
+        apply: elements => {
+            const config = JSON.parse(JSON.stringify(pluginConfig.get("transition")));
+            config["duration"] = Number(elements.duration.value);
+            config["steps"] = Number(elements.steps.value);
+            pluginConfig.set("transition", config);
+            TaskbarLyricsAPI.animation(config);
+        },
+        reset: elements => {
+            elements.duration.value = defaultConfig["transition"]["duration"];
+            elements.steps.value = defaultConfig["transition"]["steps"];
+            pluginConfig.set("transition", undefined);
+            TaskbarLyricsAPI.animation(defaultConfig["transition"]);
+        }
+    }
+
+
     this.func = {
         font,
         color,
@@ -264,6 +283,7 @@ plugin.onLoad(async () => {
         align,
         position,
         margin,
-        screen
+        screen,
+        transition
     };
 });

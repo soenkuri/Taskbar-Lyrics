@@ -23,6 +23,7 @@ plugin.onLoad(async () => {
         position,
         margin,
         screen,
+        transition,
     } = { ...this.func };
 
 
@@ -362,5 +363,26 @@ plugin.onLoad(async () => {
         });
 
         parentTaskbarValue.textContent = pluginConfig.get("screen")["parent_taskbar"]["textContent"];
+    }
+
+
+    // 过渡动画
+    {
+        const apply = configView.querySelector(".content.lyrics .transition-settings .apply");
+        const reset = configView.querySelector(".content.lyrics .transition-settings .reset");
+
+        const duration = configView.querySelector(".content.lyrics .transition-settings .transition-duration");
+        const steps = configView.querySelector(".content.lyrics .transition-settings .transition-steps");
+
+        const elements = {
+            duration,
+            steps
+        }
+
+        apply.addEventListener("click", () => transition.apply(elements));
+        reset.addEventListener("click", () => transition.reset(elements));
+
+        duration.value = pluginConfig.get("transition")["duration"];
+        steps.value = pluginConfig.get("transition")["steps"];
     }
 });

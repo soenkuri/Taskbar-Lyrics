@@ -36,6 +36,9 @@ plugin.onLoad(async () => {
             screen: params => TaskbarLyricsFetch("/window/screen", params),
         },
 
+        // 过渡动画
+        animation: params => TaskbarLyricsFetch("/animation", params),
+
         // 关闭
         close: params => TaskbarLyricsFetch("/close", params)
     };
@@ -157,6 +160,10 @@ plugin.onLoad(async () => {
                 "value": "Shell_TrayWnd",
                 "textContent": "主屏幕任务栏"
             }
+        },
+        "transition": {
+            "duration": 400,
+            "steps": 10
         }
     };
 

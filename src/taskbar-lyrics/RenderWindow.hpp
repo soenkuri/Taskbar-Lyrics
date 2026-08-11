@@ -90,6 +90,7 @@ class 呈现窗口类
     UINT_PTR 淡入定时器ID = 0;
     int 淡入动画进度 = 0;
     int 淡入总步数 = 10;
+    int 过渡时长 = 400;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;
 

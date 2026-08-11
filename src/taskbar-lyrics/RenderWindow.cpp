@@ -399,6 +399,14 @@ float 呈现窗口类::DPI(
 
 void 呈现窗口类::开始淡入动画()
 {
+    if (this->过渡时长 == 0 || this->淡入总步数 == 0)
+    {
+        this->歌词不透明度 = 1.0f;
+        this->淡入定时器ID = 0;
+        PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
+        return;
+    }
+
     // 保存当前歌词作为旧歌词（用于交叉淡入淡出）
     this->旧主歌词 = this->主歌词;
     this->旧副歌词 = this->副歌词;
@@ -408,10 +416,13 @@ void 呈现窗口类::开始淡入动画()
         KillTimer(*this->窗口句柄, this->淡入定时器ID);
     }
 
+    int 定时器间隔 = this->过渡时长 / this->淡入总步数;
+    if (定时器间隔 < 1) 定时器间隔 = 1;
+
     this->淡入动画进度 = 1;
     float t = static_cast<float>(this->淡入动画进度) / this->淡入总步数;
     this->歌词不透明度 = t * t;
 
-    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 40, NULL);
+    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 定时器间隔, NULL);
     PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
 }
