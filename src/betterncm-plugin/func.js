@@ -269,14 +269,27 @@ plugin.onLoad(async () => {
     const transition = {
         apply: elements => {
             const config = JSON.parse(JSON.stringify(pluginConfig.get("transition")));
-            config["duration"] = Number(elements.duration.value);
-            config["steps"] = Number(elements.steps.value);
+            config["fade_in"]["duration"] = Number(elements.fadeInDuration.value);
+            config["fade_out"]["duration"] = Number(elements.fadeOutDuration.value);
+            config["frame_rate"] = Number(elements.frameRate.value);
+            config["overlap"] = Number(elements.overlap.value);
+            config["curve"] = Number(elements.curveValue.dataset.value);
+            pluginConfig.set("transition", config);
+            TaskbarLyricsAPI.animation(config);
+        },
+        setCurve: (value, textContent) => {
+            const config = JSON.parse(JSON.stringify(pluginConfig.get("transition")));
+            config["curve"] = Number(value);
             pluginConfig.set("transition", config);
             TaskbarLyricsAPI.animation(config);
         },
         reset: elements => {
-            elements.duration.value = defaultConfig["transition"]["duration"];
-            elements.steps.value = defaultConfig["transition"]["steps"];
+            elements.fadeInDuration.value = defaultConfig["transition"]["fade_in"]["duration"];
+            elements.fadeOutDuration.value = defaultConfig["transition"]["fade_out"]["duration"];
+            elements.frameRate.value = defaultConfig["transition"]["frame_rate"];
+            elements.overlap.value = defaultConfig["transition"]["overlap"];
+            elements.curveValue.textContent = "缓入";
+            elements.curveValue.dataset.value = "1";
             pluginConfig.set("transition", undefined);
             TaskbarLyricsAPI.animation(defaultConfig["transition"]);
         }

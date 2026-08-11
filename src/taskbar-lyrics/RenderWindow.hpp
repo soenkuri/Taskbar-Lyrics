@@ -7,6 +7,9 @@
 
 
 #define WM_FADE_START (WM_USER + 1)
+#define 淡入定时器 1
+#define 淡出定时器 2
+#define 淡入延迟定时器 3
 
 
 enum WindowAlignment
@@ -86,11 +89,20 @@ class 呈现窗口类
     DWRITE_TEXT_ALIGNMENT 对齐方式_主歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;
     DWRITE_TEXT_ALIGNMENT 对齐方式_副歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;
 
-    float 歌词不透明度 = 1.0f;
+    float 淡入不透明度 = 1.0f;
+    float 淡出不透明度 = 0.0f;
     UINT_PTR 淡入定时器ID = 0;
+    UINT_PTR 淡出定时器ID = 0;
+    UINT_PTR 淡入延迟定时器ID = 0;
     int 淡入动画进度 = 0;
-    int 淡入总步数 = 10;
-    int 过渡时长 = 400;
+    int 淡出动画进度 = 0;
+    int 淡入总步数 = 24;
+    int 淡出总步数 = 24;
+    int 淡入时长 = 400;
+    int 淡出时长 = 400;
+    int 帧率 = 60;
+    int 重叠时间 = 400;
+    int 动画曲线 = 1;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;
 
@@ -98,6 +110,7 @@ class 呈现窗口类
 	public:
     void 更新窗口();
     void 开始淡入动画();
+    void 启动淡入();
 
 
     private:

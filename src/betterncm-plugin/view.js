@@ -406,19 +406,41 @@ plugin.onLoad(async () => {
         const apply = configView.querySelector(".content.lyrics .transition-settings .apply");
         const reset = configView.querySelector(".content.lyrics .transition-settings .reset");
 
-        const duration = configView.querySelector(".content.lyrics .transition-settings .transition-duration");
-        const steps = configView.querySelector(".content.lyrics .transition-settings .transition-steps");
+        const fadeInDuration = configView.querySelector(".content.lyrics .transition-settings .fade-in-duration");
+        const fadeOutDuration = configView.querySelector(".content.lyrics .transition-settings .fade-out-duration");
+        const frameRate = configView.querySelector(".content.lyrics .transition-settings .frame-rate");
+        const overlap = configView.querySelector(".content.lyrics .transition-settings .overlap");
+        const curveValue = configView.querySelector(".content.lyrics .transition-settings .curve-select .value");
+        const curveSelect = configView.querySelector(".content.lyrics .transition-settings .curve-select .select");
 
         const elements = {
-            duration,
-            steps
+            fadeInDuration,
+            fadeOutDuration,
+            frameRate,
+            overlap,
+            curveValue
         }
 
         apply.addEventListener("click", () => transition.apply(elements));
         reset.addEventListener("click", () => transition.reset(elements));
 
-        duration.value = pluginConfig.get("transition")["duration"];
-        steps.value = pluginConfig.get("transition")["steps"];
+        curveValue.addEventListener("click", selectController);
+        curveSelect.addEventListener("click", event => {
+            const value = event.target.dataset.value;
+            const textContent = event.target.textContent;
+            transition.setCurve(value, textContent);
+            curveValue.textContent = textContent;
+            curveValue.dataset.value = value;
+        });
+
+        const config = pluginConfig.get("transition");
+        fadeInDuration.value = config["fade_in"]["duration"];
+        fadeOutDuration.value = config["fade_out"]["duration"];
+        frameRate.value = config["frame_rate"];
+        overlap.value = config["overlap"];
+        const curveNames = ["线性", "缓入", "缓出", "缓入缓出", "回弹"];
+        curveValue.textContent = curveNames[config["curve"]] || "缓入";
+        curveValue.dataset.value = config["curve"];
     }
 
 

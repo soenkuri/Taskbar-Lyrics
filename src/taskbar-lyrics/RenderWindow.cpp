@@ -1,4 +1,6 @@
 ﻿#include "RenderWindow.hpp"
+#include <utility>
+#include <algorithm>
 
 #pragma comment (lib, "d2d1.lib")
 #pragma comment (lib, "dwrite.lib")
@@ -52,6 +54,16 @@
     {
         KillTimer(*this->窗口句柄, this->淡入定时器ID);
         this->淡入定时器ID = 0;
+    }
+    if (this->淡出定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡出定时器ID);
+        this->淡出定时器ID = 0;
+    }
+    if (this->淡入延迟定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡入延迟定时器ID);
+        this->淡入延迟定时器ID = 0;
     }
 
     this->D2D工厂->Release();
@@ -160,18 +172,18 @@ void 呈现窗口类::绘制窗口(
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, 宽, 高);
     HBITMAP oldBitmap = HBITMAP(SelectObject(memDC, memBitmap));
 
-    if (this->淡入定时器ID)
+    if (this->淡入定时器ID || this->淡出定时器ID)
     {
         // 交叉淡入淡出：先绘制旧歌词（淡出），再绘制新歌词（淡入）
         std::wstring 临时主 = this->主歌词;
         std::wstring 临时副 = this->副歌词;
 
-        // 绘制旧歌词（淡出）
+        // 绘制旧歌词（淡出）—— 临时交换不透明度，让绘制函数使用淡出不透明度
         this->主歌词 = this->旧主歌词;
         this->副歌词 = this->旧副歌词;
-        this->歌词不透明度 = 1.0f - this->歌词不透明度;
+        std::swap(this->淡入不透明度, this->淡出不透明度);
         this->绘制歌词(memDC, rect);
-        this->歌词不透明度 = 1.0f - this->歌词不透明度;
+        std::swap(this->淡入不透明度, this->淡出不透明度);
 
         // 恢复新歌词（淡入）
         this->主歌词 = 临时主;
@@ -256,7 +268,7 @@ void 呈现窗口类::绘制歌词(
         this->DWrite主歌词文本布局->SetUnderline(this->字体样式_主歌词_下划线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         this->DWrite主歌词文本布局->SetStrikethrough(this->字体样式_主歌词_删除线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         D2D1::ColorF 主颜色 = this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词;
-        主颜色.a *= this->歌词不透明度;
+        主颜色.a *= this->淡入不透明度;
         this->D2D纯色笔刷->SetColor(主颜色);
 
         //绘制文字显示
@@ -312,7 +324,7 @@ void 呈现窗口类::绘制歌词(
         this->DWrite主歌词文本布局->SetUnderline(this->字体样式_主歌词_下划线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         this->DWrite主歌词文本布局->SetStrikethrough(this->字体样式_主歌词_删除线, DWRITE_TEXT_RANGE{0, this->主歌词.size()});
         D2D1::ColorF 主颜色 = this->深浅模式 ? this->字体颜色_浅色_主歌词 : this->字体颜色_深色_主歌词;
-        主颜色.a *= this->歌词不透明度;
+        主颜色.a *= this->淡入不透明度;
         this->D2D纯色笔刷->SetColor(主颜色);
 
         //绘制主文字
@@ -363,7 +375,7 @@ void 呈现窗口类::绘制歌词(
         this->DWrite副歌词文本布局->SetUnderline(this->字体样式_副歌词_下划线, DWRITE_TEXT_RANGE{0, this->副歌词.size()});
         this->DWrite副歌词文本布局->SetStrikethrough(this->字体样式_副歌词_删除线, DWRITE_TEXT_RANGE{0, this->副歌词.size()});
         D2D1::ColorF 副颜色 = this->深浅模式 ? this->字体颜色_浅色_副歌词 : this->字体颜色_深色_副歌词;
-        副颜色.a *= this->歌词不透明度;
+        副颜色.a *= this->淡入不透明度;
         this->D2D纯色笔刷->SetColor(副颜色);
 
         //绘制文字显示
@@ -397,30 +409,85 @@ float 呈现窗口类::DPI(
 }
 
 
-void 呈现窗口类::开始淡入动画()
+void 呈现窗口类::启动淡入()
 {
-    if (this->过渡时长 == 0 || this->淡入总步数 == 0)
-    {
-        this->歌词不透明度 = 1.0f;
-        this->淡入定时器ID = 0;
-        PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
-        return;
-    }
-
-    // 旧歌词已在 NetworkServer::歌词() 中提前保存
-
     if (this->淡入定时器ID)
     {
         KillTimer(*this->窗口句柄, this->淡入定时器ID);
+        this->淡入定时器ID = 0;
     }
 
-    int 定时器间隔 = this->过渡时长 / this->淡入总步数;
-    if (定时器间隔 < 1) 定时器间隔 = 1;
+    if (this->淡入时长 == 0 || this->淡入总步数 == 0)
+    {
+        this->淡入不透明度 = 1.0f;
+        this->淡入定时器ID = 0;
+    }
+    else
+    {
+        this->淡入动画进度 = 0;
+        this->淡入不透明度 = 0.0f;
+        int 定时器间隔 = this->淡入时长 / this->淡入总步数;
+        if (定时器间隔 < 1) 定时器间隔 = 1;
+        this->淡入定时器ID = SetTimer(*this->窗口句柄, 淡入定时器, 定时器间隔, NULL);
+    }
 
-    this->淡入动画进度 = 1;
-    float t = static_cast<float>(this->淡入动画进度) / this->淡入总步数;
-    this->歌词不透明度 = t * t;
+    PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
+}
 
-    this->淡入定时器ID = SetTimer(*this->窗口句柄, 1, 定时器间隔, NULL);
+
+void 呈现窗口类::开始淡入动画()
+{
+    // 旧歌词已在 NetworkServer::歌词() 中提前保存
+
+    // 统一清理正在运行的动画定时器
+    if (this->淡入定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡入定时器ID);
+        this->淡入定时器ID = 0;
+    }
+    if (this->淡出定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡出定时器ID);
+        this->淡出定时器ID = 0;
+    }
+    if (this->淡入延迟定时器ID)
+    {
+        KillTimer(*this->窗口句柄, this->淡入延迟定时器ID);
+        this->淡入延迟定时器ID = 0;
+    }
+
+    // 根据帧率计算步数
+    this->淡入总步数 = std::max(1, this->淡入时长 * this->帧率 / 1000);
+    this->淡出总步数 = std::max(1, this->淡出时长 * this->帧率 / 1000);
+
+    // 启动淡出（立即开始）
+    if (this->淡出时长 == 0 || this->淡出总步数 == 0)
+    {
+        this->淡出不透明度 = 0.0f;
+        this->淡出定时器ID = 0;
+    }
+    else
+    {
+        this->淡出动画进度 = 0;
+        this->淡出不透明度 = 1.0f;
+        int 定时器间隔 = this->淡出时长 / this->淡出总步数;
+        if (定时器间隔 < 1) 定时器间隔 = 1;
+        this->淡出定时器ID = SetTimer(*this->窗口句柄, 淡出定时器, 定时器间隔, NULL);
+    }
+
+    // 根据重叠时间计算淡入启动延迟：
+    // 重叠时间越大，淡入越早开始；最大为淡出时长（同时开始），最小为 0（淡出结束后再开始）
+    int 有效重叠 = std::min(this->重叠时间, this->淡出时长);
+    int 淡入延迟 = this->淡出时长 - 有效重叠;
+
+    if (淡入延迟 <= 0)
+    {
+        this->启动淡入();
+    }
+    else
+    {
+        this->淡入延迟定时器ID = SetTimer(*this->窗口句柄, 淡入延迟定时器, 淡入延迟, NULL);
+    }
+
     PostMessage(*this->窗口句柄, WM_PAINT, NULL, NULL);
 }

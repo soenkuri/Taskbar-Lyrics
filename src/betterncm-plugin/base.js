@@ -165,14 +165,68 @@ plugin.onLoad(async () => {
             }
         },
         "transition": {
-            "duration": 400,
-            "steps": 10
+            "fade_in": {
+                "duration": 400
+            },
+            "fade_out": {
+                "duration": 400
+            },
+            "frame_rate": 60,
+            "overlap": 400,
+            "curve": 1
         }
     };
 
 
+    // 过渡动画配置迁移（兼容旧版 duration/steps 结构）
+    const migrateTransition = saved => {
+        if (!saved) return defaultConfig.transition;
+
+        const result = JSON.parse(JSON.stringify(defaultConfig.transition));
+
+        // 旧版扁平结构 { duration, steps }
+        if ("duration" in saved && "steps" in saved) {
+            const duration = Number(saved.duration) || 400;
+            const steps = Number(saved.steps) || 10;
+            result.fade_in.duration = duration;
+            result.fade_out.duration = duration;
+            result.frame_rate = Math.round(1000 * steps / duration) || 60;
+            result.overlap = duration;
+            if (saved.curve !== undefined) result.curve = saved.curve;
+            return result;
+        }
+
+        // 新版结构
+        if (saved.fade_in?.duration !== undefined) {
+            result.fade_in.duration = Number(saved.fade_in.duration);
+        }
+        if (saved.fade_out?.duration !== undefined) {
+            result.fade_out.duration = Number(saved.fade_out.duration);
+        }
+        if (saved.frame_rate !== undefined) {
+            result.frame_rate = Number(saved.frame_rate);
+        }
+        // 若保存的是旧版 fade_in.steps，用时长反推帧率
+        else if (saved.fade_in?.steps !== undefined && saved.fade_in?.duration !== undefined) {
+            result.frame_rate = Math.round(1000 * saved.fade_in.steps / saved.fade_in.duration) || 60;
+        }
+        if (saved.overlap !== undefined) {
+            result.overlap = Number(saved.overlap);
+        }
+        if (saved.curve !== undefined) {
+            result.curve = Number(saved.curve);
+        }
+
+        return result;
+    };
+
+
     const pluginConfig = {
-        get: name => Object.assign({}, defaultConfig[name], plugin.getConfig(name, defaultConfig[name])),
+        get: name => {
+            const saved = plugin.getConfig(name, defaultConfig[name]);
+            if (name === "transition") return migrateTransition(saved);
+            return Object.assign({}, defaultConfig[name], saved);
+        },
         set: (name, value) => plugin.setConfig(name, value)
     };
 

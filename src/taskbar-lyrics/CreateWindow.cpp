@@ -226,17 +226,64 @@ LRESULT CALLBACK 任务栏窗口类::窗口过程(
         case WM_TIMER:
         {
             auto& 窗口 = 任务栏窗口类::任务栏窗口->呈现窗口;
-            if (窗口->淡入动画进度 < 窗口->淡入总步数)
+
+            // 缓动曲线函数
+            auto 缓动 = [](float t, int curve) -> float {
+                switch (curve) {
+                    case 0: return t;                       // 线性
+                    case 1: return t * t;                   // 缓入
+                    case 2: return t * (2.0f - t);         // 缓出
+                    case 3: return t < 0.5f ? 2*t*t : -1+(4-2*t)*t; // 缓入缓出
+                    case 4: { float s = 1.70158f; return t*t*((s+1)*t - s); } // 回弹
+                    default: return t;
+                }
+            };
+
+            switch (字参数)
             {
-                窗口->淡入动画进度++;
-                float t = static_cast<float>(窗口->淡入动画进度) / 窗口->淡入总步数;
-                窗口->歌词不透明度 = t * t;
-                PostMessage(窗口句柄, WM_PAINT, NULL, NULL);
-            }
-            else
-            {
-                KillTimer(窗口句柄, 窗口->淡入定时器ID);
-                窗口->淡入定时器ID = 0;
+                case 淡入定时器:
+                {
+                    if (窗口->淡入动画进度 < 窗口->淡入总步数)
+                    {
+                        窗口->淡入动画进度++;
+                        float t = static_cast<float>(窗口->淡入动画进度) / 窗口->淡入总步数;
+                        窗口->淡入不透明度 = 缓动(t, 窗口->动画曲线);
+                        PostMessage(窗口句柄, WM_PAINT, NULL, NULL);
+                    }
+                    else
+                    {
+                        KillTimer(窗口句柄, 窗口->淡入定时器ID);
+                        窗口->淡入定时器ID = 0;
+                        窗口->淡入不透明度 = 1.0f;
+                    }
+                }
+                break;
+
+                case 淡出定时器:
+                {
+                    if (窗口->淡出动画进度 < 窗口->淡出总步数)
+                    {
+                        窗口->淡出动画进度++;
+                        float t = static_cast<float>(窗口->淡出动画进度) / 窗口->淡出总步数;
+                        窗口->淡出不透明度 = 1.0f - 缓动(t, 窗口->动画曲线);
+                        PostMessage(窗口句柄, WM_PAINT, NULL, NULL);
+                    }
+                    else
+                    {
+                        KillTimer(窗口句柄, 窗口->淡出定时器ID);
+                        窗口->淡出定时器ID = 0;
+                        窗口->淡出不透明度 = 0.0f;
+                    }
+                }
+                break;
+
+                case 淡入延迟定时器:
+                {
+                    KillTimer(窗口句柄, 窗口->淡入延迟定时器ID);
+                    窗口->淡入延迟定时器ID = 0;
+                    窗口->启动淡入();
+                }
+                break;
             }
         };
         break;

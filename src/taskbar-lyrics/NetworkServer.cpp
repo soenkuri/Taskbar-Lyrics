@@ -25,6 +25,7 @@
         this->网络服务器.Post("/taskbar/window/margin", handler(&网络服务器类::边距));
         this->网络服务器.Post("/taskbar/window/screen", handler(&网络服务器类::屏幕));
         this->网络服务器.Post("/taskbar/animation", handler(&网络服务器类::过渡动画));
+        this->网络服务器.Post("/taskbar/ping", handler(&网络服务器类::ping));
         this->网络服务器.Post("/taskbar/close", handler(&网络服务器类::关闭));
         this->网络服务器.listen("127.0.0.1", 端口);
     };
@@ -257,15 +258,20 @@ void 网络服务器类::过渡动画(
     auto json = nlohmann::json::parse(req.body);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
-    int 新时长 = json["duration"].get<int>();
-    int 新步数 = json["steps"].get<int>();
+    窗口->淡入时长 = json["fade_in"]["duration"].get<int>();
+    窗口->淡出时长 = json["fade_out"]["duration"].get<int>();
+    窗口->帧率 = json["frame_rate"].get<int>();
+    窗口->重叠时间 = json["overlap"].get<int>();
+    窗口->动画曲线 = json["curve"].get<int>();
 
-    if (窗口->过渡时长 != 新时长 || 窗口->淡入总步数 != 新步数)
-    {
-        窗口->过渡时长 = 新时长;
-        窗口->淡入总步数 = 新步数;
-    }
+    res.status = 200;
+}
 
+
+void 网络服务器类::ping(
+    const httplib::Request& req,
+    httplib::Response& res
+) {
     res.status = 200;
 }
 
