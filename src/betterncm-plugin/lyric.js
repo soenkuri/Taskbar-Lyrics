@@ -138,40 +138,85 @@ plugin.onLoad(async () => {
     }
 
 
-    // 音乐进度发生变化时
-    const play_progress = async (_, time) => {
+    let lastProgressTime = 0;
+
+
+    // 发送当前进度对应的歌词
+    const sendCurrentLyric = (time, force = false) => {
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
         const hideEnabled = pluginConfig.get("hide")["enabled"];
-        if (parsedLyric) {
-            let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
-            nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
+        if (!parsedLyric) return;
 
-            if (nextIndex != currentIndex) {
-                const currentLyric = parsedLyric[nextIndex - 1] ?? "";
+        let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
+        nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
-                const lyrics = {
-                    "basic": currentLyric?.originalLyric ?? "",
-                    "extra": currentLyric?.translatedLyric ?? ""
-                };
+        if (force || nextIndex != currentIndex) {
+            const currentLyric = parsedLyric[nextIndex - 1] ?? "";
 
-                // 若 liblyric 没给出 duration，用下一句开始时间推算
-                let duration = currentLyric?.duration;
-                if (hideEnabled && (!duration || duration <= 0) && nextIndex < parsedLyric.length) {
-                    duration = parsedLyric[nextIndex].time - currentLyric.time;
-                }
+            const lyrics = {
+                "basic": currentLyric?.originalLyric ?? "",
+                "extra": currentLyric?.translatedLyric ?? ""
+            };
 
-                addLog(`[调试] hideEnabled=${hideEnabled}, duration=${currentLyric?.duration}, 计算后=${duration}`, "info");
-
-                if (hideEnabled && duration > 0) {
-                    lyrics["duration"] = Math.round(duration);
-                    addLog(`发送歌词: "${lyrics.basic || "(空)"}"，显示时长 ${lyrics.duration}ms`, "info");
-                } else {
-                    addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
-                }
-
-                TaskbarLyricsAPI.lyrics.lyrics(lyrics);
-                currentIndex = nextIndex;
+            // 若 liblyric 没给出 duration，用下一句开始时间推算
+            let duration = currentLyric?.duration;
+            if (hideEnabled && (!duration || duration <= 0) && nextIndex < parsedLyric.length) {
+                duration = parsedLyric[nextIndex].time - currentLyric.time;
             }
+
+            // 根据已播放进度扣减剩余显示时长
+            if (hideEnabled && duration > 0) {
+                const elapsed = (time + adjust) * 1000 - currentLyric.time;
+                const remaining = Math.max(0, duration - elapsed);
+                lyrics["duration"] = Math.round(remaining);
+            }
+
+            if (hideEnabled && lyrics.duration > 0) {
+                addLog(`发送歌词: "${lyrics.basic || "(空)"}"，剩余显示时长 ${lyrics.duration}ms`, "info");
+            } else {
+                addLog(`发送歌词: "${lyrics.basic || "(空)"}"`, "info");
+            }
+
+            TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+            currentIndex = nextIndex;
+        }
+    }
+
+
+    // 音乐进度发生变化时
+    const play_progress = async (_, time) => {
+        lastProgressTime = time;
+        sendCurrentLyric(time, false);
+    }
+
+
+    // 播放状态变化
+    const play_state = async (state) => {
+        const hideEnabled = pluginConfig.get("hide")["enabled"];
+        if (!hideEnabled) return;
+
+        addLog(`[调试] PlayState 回调: ${JSON.stringify(state)}`, "info");
+
+        let isPlaying = false;
+        let time = lastProgressTime;
+
+        if (typeof state === "boolean") {
+            isPlaying = state;
+        } else if (state && typeof state === "object") {
+            isPlaying = state.playing || state.data?.playing || state.isPlaying || false;
+            time = state.time || state.data?.time || state.currentTime || lastProgressTime;
+        } else if (typeof state === "string") {
+            isPlaying = state === "play" || state === "playing";
+        } else if (typeof state === "number") {
+            isPlaying = state !== 0;
+        }
+
+        if (isPlaying) {
+            addLog("播放恢复，立即发送当前歌词", "info");
+            sendCurrentLyric(time, true);
+        } else {
+            addLog("暂停播放，清空歌词", "info");
+            TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
         }
     }
 
@@ -190,6 +235,7 @@ plugin.onLoad(async () => {
             case 1: {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
                 const playingSong = betterncm.ncm.getPlayingSong();
                 if (playingSong && playingSong.data.id != musicId) {
                     play_load();
@@ -200,6 +246,7 @@ plugin.onLoad(async () => {
             case 2: {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
             } break;
         }
     }
@@ -221,12 +268,14 @@ plugin.onLoad(async () => {
             case 1: {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
 
             // RefinedNowPlaying
             case 2: {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
+                legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
         }
     }
