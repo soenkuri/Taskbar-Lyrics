@@ -12,6 +12,23 @@ plugin.onLoad(async () => {
     let musicId = 0;
 
 
+    // 断线重连
+    const reconnect = async () => {
+        const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
+        const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
+        const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
+        await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+        TaskbarLyricsAPI.font.font(pluginConfig.get("font"));
+        TaskbarLyricsAPI.font.color(pluginConfig.get("color"));
+        TaskbarLyricsAPI.font.style(pluginConfig.get("style"));
+        TaskbarLyricsAPI.window.position(pluginConfig.get("position"));
+        TaskbarLyricsAPI.window.margin(pluginConfig.get("margin"));
+        TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
+        TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
+        TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
+    };
+
+
     // 监视软件内歌词变动
     const watchLyricsChange = async () => {
         const mLyric = await betterncm.utils.waitForElement("#x-g-mn .m-lyric");
@@ -112,7 +129,13 @@ plugin.onLoad(async () => {
                     "extra": currentLyric?.translatedLyric ?? ""
                 };
 
-                TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+                try {
+                    const res = await TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+                    if (!res.ok) throw new Error();
+                } catch {
+                    await reconnect();
+                    try { TaskbarLyricsAPI.lyrics.lyrics(lyrics); } catch {}
+                }
                 currentIndex = nextIndex;
             }
         }
