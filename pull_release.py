@@ -7,6 +7,23 @@ SOURCE = r"C:\Users\Soenkuri\Downloads\Taskbar-Lyric-dev.plugin"
 DEST_DIR = r"C:\betterncm\plugins"
 CLOUDMUSIC = r"C:\Program Files (x86)\NetEase\CloudMusic\cloudmusic.exe"
 
+
+def remove_file_with_retry(path, max_attempts=5, initial_delay=0.25):
+    """删除可能仍被系统短暂占用的单个文件。"""
+    for attempt in range(max_attempts):
+        try:
+            os.remove(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            if attempt == max_attempts - 1:
+                raise RuntimeError(f"删除失败，已重试 {max_attempts} 次: {path}") from error
+
+            delay = initial_delay * (2 ** attempt)
+            print(f"删除 {path} 失败，{delay:.2f} 秒后重试 ({attempt + 1}/{max_attempts})")
+            time.sleep(delay)
+
 if not os.path.exists(SOURCE):
     print(f"错误: 找不到 {SOURCE}")
     exit(1)
@@ -27,7 +44,7 @@ time.sleep(1)
 # 清理文件
 exe_path = r"C:\betterncm\taskbar-lyrics.exe"
 if os.path.exists(exe_path):
-    os.remove(exe_path)
+    remove_file_with_retry(exe_path)
     print(f"已删除 {exe_path}")
 
 runtime_dir = r"C:\betterncm\plugins_runtime\Taskbar-Lyrics"

@@ -178,6 +178,10 @@
                         </div>
                     </div>
                 </div>
+                <div class="item_container">
+                    <span>请求逐字歌词：</span>
+                    <input type="checkbox" class="switch-btn request-dynamic-lyrics">
+                </div>
             </section>
 
             <hr />
@@ -232,12 +236,28 @@
                     <input type="number" class="u-txt sc-flag number-input fade-out-duration" step="50" min="0" max="5000">
                 </div>
                 <div class="item_container">
+                    <span>过渡模式：</span>
+                    <div class="u-select transition-mode">
+                        <div class="value">交叉淡入淡出</div>
+                        <div class="sltwrap">
+                            <ul class="select">
+                                <li class="option f-thide" data-value="crossfade">交叉淡入淡出</li>
+                                <li class="option f-thide" data-value="sequential">淡出后淡入</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="item_container">
                     <span>帧率(fps)：</span>
                     <input type="number" class="u-txt sc-flag number-input frame-rate" step="1" min="1" max="240">
                 </div>
                 <div class="item_container">
-                    <span>重叠时间(ms)：</span>
+                    <span>重叠时间(ms，仅交叉)：</span>
                     <input type="number" class="u-txt sc-flag number-input overlap" step="50" min="0" max="5000">
+                </div>
+                <div class="item_container">
+                    <span>间隔时间(ms，仅非交叉)：</span>
+                    <input type="number" class="u-txt sc-flag number-input gap" step="50" min="0" max="5000">
                 </div>
                 <div class="item_container">
                     <span>动画曲线：</span>

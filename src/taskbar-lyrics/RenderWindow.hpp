@@ -102,6 +102,8 @@ class 呈现窗口类
     int 淡出时长 = 400;
     int 帧率 = 60;
     int 重叠时间 = 400;
+    bool 交叉淡入淡出 = true;
+    int 淡入间隔 = 0;
     int 动画曲线 = 1;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;

@@ -262,6 +262,8 @@ void 网络服务器类::过渡动画(
     窗口->淡出时长 = json["fade_out"]["duration"].get<int>();
     窗口->帧率 = json["frame_rate"].get<int>();
     窗口->重叠时间 = json["overlap"].get<int>();
+    窗口->交叉淡入淡出 = json.value("crossfade", true);
+    窗口->淡入间隔 = json.value("gap", 0);
     窗口->动画曲线 = json["curve"].get<int>();
 
     res.status = 200;

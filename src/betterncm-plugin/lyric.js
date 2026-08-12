@@ -146,12 +146,15 @@ plugin.onLoad(async () => {
         } else {
             const lyricData = await liblyric.getLyricData(musicId);
             if (loadVersion !== lyricLoadVersion) return;
+            const useDynamicLyrics = config["request_dynamic_lyrics"]
+                && Boolean(lyricData?.yrc?.lyric?.trim());
             parsedLyric = liblyric.parseLyric(
                 lyricData?.lrc?.lyric ?? "",
                 lyricData?.tlyric?.lyric ?? "",
                 lyricData?.romalrc?.lyric ?? "",
-                lyricData?.yrc?.lyric ?? ""
+                useDynamicLyrics ? lyricData.yrc.lyric : ""
             );
+            addLog(`歌词类型：${useDynamicLyrics ? "逐字歌词" : "静态歌词"}`, "info");
         }
 
         if (loadVersion !== lyricLoadVersion) return;
@@ -388,6 +391,7 @@ plugin.onLoad(async () => {
         clearLineEndTimer();
         parsedLyric = null;
         hasCurrentSongProgress = false;
+        musicId = 0;
         isPaused = false;
         interludeSent = false;
         const config = pluginConfig.get("lyrics");

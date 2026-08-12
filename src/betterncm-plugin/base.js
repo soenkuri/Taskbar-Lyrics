@@ -139,7 +139,8 @@ plugin.onLoad(async () => {
             "retrieval_method": {
                 "value": 1,
                 "textContent": "使用LibLyric解析获取歌词",
-            }
+            },
+            "request_dynamic_lyrics": true
         },
         "effect": {
             "adjust": 0.0
@@ -177,6 +178,8 @@ plugin.onLoad(async () => {
             },
             "frame_rate": 60,
             "overlap": 400,
+            "crossfade": true,
+            "gap": 0,
             "curve": 1
         }
     };
@@ -216,6 +219,12 @@ plugin.onLoad(async () => {
         }
         if (saved.overlap !== undefined) {
             result.overlap = Number(saved.overlap);
+        }
+        if (saved.crossfade !== undefined) {
+            result.crossfade = Boolean(saved.crossfade);
+        }
+        if (saved.gap !== undefined) {
+            result.gap = Math.max(0, Number(saved.gap) || 0);
         }
         if (saved.curve !== undefined) {
             result.curve = Number(saved.curve);

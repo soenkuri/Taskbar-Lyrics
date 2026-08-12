@@ -256,14 +256,17 @@ plugin.onLoad(async () => {
         const lyricsSwitch = configView.querySelector(".content.lyrics .lyrics-settings .lyrics-switch");
         const retrievalMethodValue = configView.querySelector(".content.lyrics .lyrics-settings .retrieval-method .value");
         const retrievalMethodSelect = configView.querySelector(".content.lyrics .lyrics-settings .retrieval-method .select");
+        const requestDynamicLyrics = configView.querySelector(".content.lyrics .lyrics-settings .request-dynamic-lyrics");
 
         const elements = {
-            retrievalMethodValue
+            retrievalMethodValue,
+            requestDynamicLyrics
         }
 
         reset.addEventListener("click", () => lyrics.reset(elements));
 
         lyricsSwitch.addEventListener("change", event => lyrics.lyricsSwitch(event));
+        requestDynamicLyrics.addEventListener("change", event => lyrics.setRequestDynamicLyrics(event));
 
         retrievalMethodValue.addEventListener("click", selectController);
         retrievalMethodSelect.addEventListener("click", event => {
@@ -287,7 +290,9 @@ plugin.onLoad(async () => {
             retrievalMethodValue.textContent = textContent;
         });
 
-        retrievalMethodValue.textContent = pluginConfig.get("lyrics")["retrieval_method"]["textContent"];
+        const lyricsConfig = pluginConfig.get("lyrics");
+        retrievalMethodValue.textContent = lyricsConfig["retrieval_method"]["textContent"];
+        requestDynamicLyrics.checked = lyricsConfig["request_dynamic_lyrics"];
     }
 
 
@@ -434,6 +439,9 @@ plugin.onLoad(async () => {
         const fadeOutDuration = configView.querySelector(".content.lyrics .transition-settings .fade-out-duration");
         const frameRate = configView.querySelector(".content.lyrics .transition-settings .frame-rate");
         const overlap = configView.querySelector(".content.lyrics .transition-settings .overlap");
+        const transitionModeValue = configView.querySelector(".content.lyrics .transition-settings .transition-mode .value");
+        const transitionModeSelect = configView.querySelector(".content.lyrics .transition-settings .transition-mode .select");
+        const gap = configView.querySelector(".content.lyrics .transition-settings .gap");
         const curveValue = configView.querySelector(".content.lyrics .transition-settings .curve-select .value");
         const curveSelect = configView.querySelector(".content.lyrics .transition-settings .curve-select .select");
 
@@ -442,11 +450,22 @@ plugin.onLoad(async () => {
             fadeOutDuration,
             frameRate,
             overlap,
+            transitionModeValue,
+            gap,
             curveValue
         }
 
         apply.addEventListener("click", () => transition.apply(elements));
         reset.addEventListener("click", () => transition.reset(elements));
+
+        transitionModeValue.addEventListener("click", selectController);
+        transitionModeSelect.addEventListener("click", event => {
+            const value = event.target.dataset.value;
+            const textContent = event.target.textContent;
+            if (!value) return;
+            transitionModeValue.textContent = textContent;
+            transitionModeValue.dataset.value = value;
+        });
 
         curveValue.addEventListener("click", selectController);
         curveSelect.addEventListener("click", event => {
@@ -462,6 +481,9 @@ plugin.onLoad(async () => {
         fadeOutDuration.value = config["fade_out"]["duration"];
         frameRate.value = config["frame_rate"];
         overlap.value = config["overlap"];
+        transitionModeValue.textContent = config["crossfade"] ? "交叉淡入淡出" : "淡出后淡入";
+        transitionModeValue.dataset.value = config["crossfade"] ? "crossfade" : "sequential";
+        gap.value = config["gap"];
         const curveNames = ["线性", "缓入", "缓出", "缓入缓出", "回弹"];
         curveValue.textContent = curveNames[config["curve"]] || "缓入";
         curveValue.dataset.value = config["curve"];

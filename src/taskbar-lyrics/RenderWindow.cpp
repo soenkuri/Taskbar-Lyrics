@@ -172,25 +172,24 @@ void 呈现窗口类::绘制窗口(
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, 宽, 高);
     HBITMAP oldBitmap = HBITMAP(SelectObject(memDC, memBitmap));
 
-    if (this->淡入定时器ID || this->淡出定时器ID)
+    if (this->淡出定时器ID)
     {
-        // 交叉淡入淡出：先绘制旧歌词（淡出），再绘制新歌词（淡入）
+        // 绘制旧歌词淡出
         std::wstring 临时主 = this->主歌词;
         std::wstring 临时副 = this->副歌词;
 
-        // 绘制旧歌词（淡出）—— 临时交换不透明度，让绘制函数使用淡出不透明度
         this->主歌词 = this->旧主歌词;
         this->副歌词 = this->旧副歌词;
         std::swap(this->淡入不透明度, this->淡出不透明度);
         this->绘制歌词(memDC, rect);
         std::swap(this->淡入不透明度, this->淡出不透明度);
 
-        // 恢复新歌词（淡入）
         this->主歌词 = 临时主;
         this->副歌词 = 临时副;
-        this->绘制歌词(memDC, rect);
     }
-    else
+
+    // 非交叉模式先等待旧歌词淡出完成，再绘制新歌词
+    if (this->交叉淡入淡出 || !this->淡出定时器ID)
     {
         this->绘制歌词(memDC, rect);
     }
@@ -459,6 +458,7 @@ void 呈现窗口类::开始淡入动画()
     // 根据帧率计算步数
     this->淡入总步数 = (std::max)(1, this->淡入时长 * this->帧率 / 1000);
     this->淡出总步数 = (std::max)(1, this->淡出时长 * this->帧率 / 1000);
+    this->淡入不透明度 = 0.0f;
 
     // 启动淡出（立即开始）
     if (this->淡出时长 == 0 || this->淡出总步数 == 0)
@@ -475,10 +475,18 @@ void 呈现窗口类::开始淡入动画()
         this->淡出定时器ID = SetTimer(*this->窗口句柄, 淡出定时器, 定时器间隔, NULL);
     }
 
-    // 根据重叠时间计算淡入启动延迟：
-    // 重叠时间越大，淡入越早开始；最大为淡出时长（同时开始），最小为 0（淡出结束后再开始）
-    int 有效重叠 = (std::min)(this->重叠时间, this->淡出时长);
-    int 淡入延迟 = this->淡出时长 - 有效重叠;
+    int 淡入延迟 = 0;
+    if (this->交叉淡入淡出)
+    {
+        // 重叠时间越大，淡入越早开始；最大为淡出时长（同时开始）
+        int 有效重叠 = (std::min)(this->重叠时间, this->淡出时长);
+        淡入延迟 = this->淡出时长 - 有效重叠;
+    }
+    else
+    {
+        // 非交叉模式在淡出完成后，再等待用户配置的间隔
+        淡入延迟 = this->淡出时长 + (std::max)(0, this->淡入间隔);
+    }
 
     if (淡入延迟 <= 0)
     {

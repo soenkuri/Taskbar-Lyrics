@@ -163,8 +163,16 @@ plugin.onLoad(async () => {
             pluginConfig.set("lyrics", config);
             startGetLyric();
         },
+        setRequestDynamicLyrics: event => {
+            const config = JSON.parse(JSON.stringify(pluginConfig.get("lyrics")));
+            config["request_dynamic_lyrics"] = event.target.checked;
+            stopGetLyric();
+            pluginConfig.set("lyrics", config);
+            startGetLyric();
+        },
         reset: elements => {
             elements.retrievalMethodValue.textContent = defaultConfig["lyrics"]["retrieval_method"]["textContent"];
+            elements.requestDynamicLyrics.checked = defaultConfig["lyrics"]["request_dynamic_lyrics"];
             stopGetLyric();
             pluginConfig.set("lyrics", undefined);
             startGetLyric();
@@ -296,6 +304,8 @@ plugin.onLoad(async () => {
             config["fade_out"]["duration"] = Number(elements.fadeOutDuration.value);
             config["frame_rate"] = Number(elements.frameRate.value);
             config["overlap"] = Number(elements.overlap.value);
+            config["crossfade"] = elements.transitionModeValue.dataset.value === "crossfade";
+            config["gap"] = Math.max(0, Number(elements.gap.value) || 0);
             config["curve"] = Number(elements.curveValue.dataset.value);
             pluginConfig.set("transition", config);
             TaskbarLyricsAPI.animation(config);
@@ -311,6 +321,9 @@ plugin.onLoad(async () => {
             elements.fadeOutDuration.value = defaultConfig["transition"]["fade_out"]["duration"];
             elements.frameRate.value = defaultConfig["transition"]["frame_rate"];
             elements.overlap.value = defaultConfig["transition"]["overlap"];
+            elements.transitionModeValue.textContent = "交叉淡入淡出";
+            elements.transitionModeValue.dataset.value = "crossfade";
+            elements.gap.value = defaultConfig["transition"]["gap"];
             elements.curveValue.textContent = "缓入";
             elements.curveValue.dataset.value = "1";
             pluginConfig.set("transition", undefined);
