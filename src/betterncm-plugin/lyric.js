@@ -76,26 +76,67 @@ plugin.onLoad(async () => {
 
     // 断线重连
     let 正在重连 = false;
+    const waitForTaskbarLyricsReady = async () => {
+        const maxAttempts = 20;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const response = await Promise.race([
+                    TaskbarLyricsAPI.ping({}),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("ping timeout")), 1000))
+                ]);
+                if (response.ok) return true;
+            } catch {
+                // C++ 程序尚未完成启动，继续等待
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        return false;
+    };
+
+
+    const restoreTaskbarLyricsConfig = async () => {
+        const responses = await Promise.all([
+            TaskbarLyricsAPI.font.font(pluginConfig.get("font")),
+            TaskbarLyricsAPI.font.color(pluginConfig.get("color")),
+            TaskbarLyricsAPI.font.style(pluginConfig.get("style")),
+            TaskbarLyricsAPI.window.position(pluginConfig.get("position")),
+            TaskbarLyricsAPI.window.margin(pluginConfig.get("margin")),
+            TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align")),
+            TaskbarLyricsAPI.window.screen(pluginConfig.get("screen")),
+            TaskbarLyricsAPI.animation(pluginConfig.get("transition"))
+        ]);
+        if (responses.some(response => !response.ok)) {
+            throw new Error("配置恢复请求被服务端拒绝");
+        }
+    };
+
+
     const reconnect = async () => {
         if (正在重连) return;
         正在重连 = true;
-        currentIndex = 0;
-        addLog("检测到连接断开，正在重启 C++ 程序...", "error");
-        const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
-        const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
-        const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
-        await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
-        addLog("C++ 程序已重启，正在发送配置...", "success");
-        TaskbarLyricsAPI.font.font(pluginConfig.get("font"));
-        TaskbarLyricsAPI.font.color(pluginConfig.get("color"));
-        TaskbarLyricsAPI.font.style(pluginConfig.get("style"));
-        TaskbarLyricsAPI.window.position(pluginConfig.get("position"));
-        TaskbarLyricsAPI.window.margin(pluginConfig.get("margin"));
-        TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
-        TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
-        TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
-        addLog("重连配置发送完成", "success");
-        正在重连 = false;
+        try {
+            currentIndex = 0;
+            addLog("检测到连接断开，正在重启 C++ 程序...", "error");
+            const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
+            const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
+            const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && start "" /b "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
+            await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+
+            if (!await waitForTaskbarLyricsReady()) {
+                throw new Error("C++ 服务未在等待时间内就绪");
+            }
+
+            addLog("C++ 服务已就绪，正在恢复配置...", "success");
+            await restoreTaskbarLyricsConfig();
+            stopGetLyric();
+            startGetLyric();
+            addLog("重连完成，已重新加载当前歌曲", "success");
+        } catch (error) {
+            addLog(`自动重连失败：${error?.message ?? error}，将继续重试`, "error");
+        } finally {
+            正在重连 = false;
+        }
     };
 
 
