@@ -309,7 +309,7 @@ plugin.onLoad(async () => {
     }
 
 
-    // 间奏隐藏
+    // 逐句隐藏
     {
         const apply = configView.querySelector(".content.lyrics .hide-settings .apply");
         const reset = configView.querySelector(".content.lyrics .hide-settings .reset");

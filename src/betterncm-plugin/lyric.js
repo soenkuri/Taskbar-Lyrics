@@ -31,29 +31,6 @@ plugin.onLoad(async () => {
     };
 
 
-    // 普通 LRC 无法提供句末时间，只能识别显式的空白时间戳作为间奏标记
-    const getInterludeMarkers = lyricText => {
-        if (typeof liblyric.parsePureLyric !== "function") return [];
-
-        try {
-            const lines = liblyric.parsePureLyric(lyricText);
-            return lines.flatMap((line, index) => {
-                const nextLine = lines[index + 1];
-                if (line.lyric.trim() || !nextLine || nextLine.time <= line.time) return [];
-
-                return [{
-                    time: line.time,
-                    duration: nextLine.time - line.time,
-                    originalLyric: "",
-                    isInterludeMarker: true
-                }];
-            });
-        } catch {
-            return [];
-        }
-    };
-
-
     // 断线重连
     let 正在重连 = false;
     const reconnect = async () => {
@@ -121,6 +98,9 @@ plugin.onLoad(async () => {
     // 音乐ID发生变化时
     const play_load = async () => {
         clearLineEndTimer();
+        parsedLyric = null;
+        currentIndex = 0;
+        interludeSent = false;
 
         // 获取歌曲信息
         const playingSong = betterncm.ncm.getPlayingSong();
@@ -132,6 +112,13 @@ plugin.onLoad(async () => {
         let artistName = "";
         artists.forEach(item => artistName += ` / ${item.name}`);
         artistName = artistName.slice(3);
+
+        // 先发送歌曲信息；歌词加载期间不保留上一首的自动隐藏状态
+        TaskbarLyricsAPI.lyrics.lyrics({
+            "basic": name,
+            "extra": artistName
+        });
+
 
         // 解析歌词
         const config = pluginConfig.get("lyrics");
@@ -147,40 +134,27 @@ plugin.onLoad(async () => {
             }
         } else {
             const lyricData = await liblyric.getLyricData(musicId);
-            const lyricText = lyricData?.lrc?.lyric ?? "";
             parsedLyric = liblyric.parseLyric(
-                lyricText,
+                lyricData?.lrc?.lyric ?? "",
                 lyricData?.tlyric?.lyric ?? "",
-                lyricData?.romalrc?.lyric ?? ""
+                lyricData?.romalrc?.lyric ?? "",
+                lyricData?.yrc?.lyric ?? ""
             );
-            parsedLyric = [
-                ...parsedLyric.filter(item => item.originalLyric.trim()),
-                ...getInterludeMarkers(lyricText)
-            ].sort((left, right) => left.time - right.time);
         }
 
 
-        // RefinedNowPlaying 歌词不带普通 LRC 的间奏标记，保持原有空行清理行为
-        if (config["retrieval_method"]["value"] == "2") {
-            parsedLyric = parsedLyric.filter(item => item.originalLyric != "");
+        // 清除歌词空白行
+        parsedLyric = parsedLyric.filter(item => item.originalLyric != "");
+
+
+        // 纯音乐只显示歌曲名与作曲家
+        if (
+            (parsedLyric.length == 1)
+            && (parsedLyric[0].time == 0)
+            && (parsedLyric[0].duration != 0)
+        ) {
+            parsedLyric = [];
         }
-
-
-        // 有效歌词不超过三行时视为未获取到歌词，不显示歌曲信息或歌词
-        const lyricLineCount = parsedLyric.filter(item => item.originalLyric?.trim()).length;
-        if (lyricLineCount <= 3) {
-            parsedLyric = null;
-            currentIndex = 0;
-            interludeSent = false;
-            TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
-            return;
-        }
-
-        // 仅在有效歌词达到阈值后发送歌曲信息
-        TaskbarLyricsAPI.lyrics.lyrics({
-            "basic": name,
-            "extra": artistName
-        });
 
         currentIndex = 0;
         interludeSent = false;
@@ -203,25 +177,13 @@ plugin.onLoad(async () => {
 
         if (force || nextIndex != currentIndex) {
             const currentLyric = parsedLyric[nextIndex - 1] ?? "";
-            const isInterludeMarker = currentLyric?.isInterludeMarker === true;
-            if (isInterludeMarker) {
-                const hideConfig = pluginConfig.get("hide");
-                const minimumGap = Number(hideConfig["minimum_gap"]);
-                const duration = Number(currentLyric.duration) || 0;
-                if (!hideConfig["enabled"] || duration < (Number.isFinite(minimumGap) ? minimumGap : 400)) {
-                    currentIndex = nextIndex;
-                    interludeSent = false;
-                    return;
-                }
-            }
-
             const lyrics = {
                 "basic": currentLyric?.originalLyric ?? "",
                 "extra": currentLyric?.translatedLyric ?? ""
             };
             TaskbarLyricsAPI.lyrics.lyrics(lyrics);
             currentIndex = nextIndex;
-            interludeSent = isInterludeMarker;
+            interludeSent = false;
         }
     }
 
