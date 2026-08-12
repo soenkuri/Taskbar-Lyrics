@@ -11,6 +11,8 @@ plugin.onLoad(async () => {
     let currentIndex = 0;
     let musicId = 0;
     let lastProgressTime = 0;
+    let lyricLoadVersion = 0;
+    let hasCurrentSongProgress = false;
     let interludeSent = false;
     let isPaused = false;
     let pauseDebounceTimer = null;
@@ -97,10 +99,18 @@ plugin.onLoad(async () => {
 
     // 音乐ID发生变化时
     const play_load = async () => {
+        const loadVersion = ++lyricLoadVersion;
         clearLineEndTimer();
+        if (pauseDebounceTimer) {
+            clearTimeout(pauseDebounceTimer);
+            pauseDebounceTimer = null;
+        }
         parsedLyric = null;
         currentIndex = 0;
+        lastProgressTime = 0;
+        hasCurrentSongProgress = false;
         interludeSent = false;
+        isPaused = false;
 
         // 获取歌曲信息
         const playingSong = betterncm.ncm.getPlayingSong();
@@ -125,6 +135,7 @@ plugin.onLoad(async () => {
         if ((config["retrieval_method"]["value"] == "2") && window.currentLyrics) {
             // 解决RNP歌词对不上的问题
             while (true) {
+                if (loadVersion !== lyricLoadVersion) return;
                 if (window.currentLyrics.hash.includes(musicId)) {
                     parsedLyric = window.currentLyrics.lyrics;
                     break;
@@ -134,6 +145,7 @@ plugin.onLoad(async () => {
             }
         } else {
             const lyricData = await liblyric.getLyricData(musicId);
+            if (loadVersion !== lyricLoadVersion) return;
             parsedLyric = liblyric.parseLyric(
                 lyricData?.lrc?.lyric ?? "",
                 lyricData?.tlyric?.lyric ?? "",
@@ -141,6 +153,8 @@ plugin.onLoad(async () => {
                 lyricData?.yrc?.lyric ?? ""
             );
         }
+
+        if (loadVersion !== lyricLoadVersion) return;
 
 
         // 清除歌词空白行
@@ -158,6 +172,12 @@ plugin.onLoad(async () => {
 
         currentIndex = 0;
         interludeSent = false;
+
+        // 只有本首歌曲已上报播放进度时，才恢复歌词与逐句隐藏
+        if (hasCurrentSongProgress) {
+            sendCurrentLyric(lastProgressTime, false);
+            scheduleLineEndHide(lastProgressTime);
+        }
     }
 
 
@@ -262,6 +282,7 @@ plugin.onLoad(async () => {
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
         lastProgressTime = time;
+        hasCurrentSongProgress = true;
         sendCurrentLyric(time, false);
         scheduleLineEndHide(time);
     }
@@ -301,10 +322,14 @@ plugin.onLoad(async () => {
             }
             if (isPaused) {
                 isPaused = false;
-                addLog("恢复播放，立即补发当前歌词", "info");
-                sendCurrentLyric(lastProgressTime, true);
+                if (hasCurrentSongProgress) {
+                    addLog("恢复播放，立即补发当前歌词", "info");
+                    sendCurrentLyric(lastProgressTime, true);
+                }
             }
-            scheduleLineEndHide(lastProgressTime);
+            if (hasCurrentSongProgress) {
+                scheduleLineEndHide(lastProgressTime);
+            }
         } else {
             // 暂停：防抖 500ms，过滤恢复瞬间可能出现的瞬时暂停事件
             clearLineEndTimer();
@@ -314,6 +339,7 @@ plugin.onLoad(async () => {
                 if (isPaused) return;
                 isPaused = true;
                 interludeSent = false;
+                if (!hasCurrentSongProgress) return;
                 addLog("暂停播放，发送空歌词", "info");
                 TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
             }, 500);
@@ -354,11 +380,14 @@ plugin.onLoad(async () => {
 
     // 停止获取歌词
     function stopGetLyric() {
+        lyricLoadVersion++;
         if (pauseDebounceTimer) {
             clearTimeout(pauseDebounceTimer);
             pauseDebounceTimer = null;
         }
         clearLineEndTimer();
+        parsedLyric = null;
+        hasCurrentSongProgress = false;
         isPaused = false;
         interludeSent = false;
         const config = pluginConfig.get("lyrics");
