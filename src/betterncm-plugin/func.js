@@ -305,7 +305,8 @@ plugin.onLoad(async () => {
             config["frame_rate"] = Number(elements.frameRate.value);
             config["overlap"] = Number(elements.overlap.value);
             config["crossfade"] = elements.transitionModeValue.dataset.value === "crossfade";
-            config["gap"] = Math.max(0, Number(elements.gap.value) || 0);
+            const gap = Number(elements.gap.value);
+            config["gap"] = Number.isFinite(gap) ? Math.min(Math.max(gap, -5000), 5000) : 0;
             config["curve"] = Number(elements.curveValue.dataset.value);
             pluginConfig.set("transition", config);
             TaskbarLyricsAPI.animation(config);

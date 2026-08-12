@@ -33,6 +33,36 @@ plugin.onLoad(async () => {
     };
 
 
+    // 普通 LRC 没有逐字句末时间，但空白时间戳可明确标记间奏开始
+    const getInterludeMarkers = lyricText => {
+        if (typeof liblyric.parsePureLyric !== "function") return [];
+
+        try {
+            const lines = liblyric.parsePureLyric(lyricText);
+            return lines.flatMap((line, index) => {
+                const nextLine = lines[index + 1];
+                const lyric = typeof line.lyric === "string" ? line.lyric.trim() : "";
+                if (
+                    lyric
+                    || !nextLine
+                    || typeof line.time !== "number"
+                    || typeof nextLine.time !== "number"
+                    || nextLine.time <= line.time
+                ) return [];
+
+                return [{
+                    time: line.time,
+                    duration: nextLine.time - line.time,
+                    originalLyric: "",
+                    isInterludeMarker: true
+                }];
+            });
+        } catch {
+            return [];
+        }
+    };
+
+
     // 断线重连
     let 正在重连 = false;
     const reconnect = async () => {
@@ -146,22 +176,34 @@ plugin.onLoad(async () => {
         } else {
             const lyricData = await liblyric.getLyricData(musicId);
             if (loadVersion !== lyricLoadVersion) return;
+            const lyricText = lyricData?.lrc?.lyric ?? "";
             const useDynamicLyrics = config["request_dynamic_lyrics"]
                 && Boolean(lyricData?.yrc?.lyric?.trim());
             parsedLyric = liblyric.parseLyric(
-                lyricData?.lrc?.lyric ?? "",
+                lyricText,
                 lyricData?.tlyric?.lyric ?? "",
                 lyricData?.romalrc?.lyric ?? "",
                 useDynamicLyrics ? lyricData.yrc.lyric : ""
             );
             addLog(`歌词类型：${useDynamicLyrics ? "逐字歌词" : "静态歌词"}`, "info");
+
+            const interludeMarkers = getInterludeMarkers(lyricText);
+            parsedLyric = [
+                ...parsedLyric.filter(item => item.originalLyric?.trim()),
+                ...interludeMarkers
+            ].sort((left, right) => left.time - right.time);
+            if (interludeMarkers.length) {
+                addLog(`识别到 ${interludeMarkers.length} 个 LRC 间奏标记`, "info");
+            }
         }
 
         if (loadVersion !== lyricLoadVersion) return;
 
 
-        // 清除歌词空白行
-        parsedLyric = parsedLyric.filter(item => item.originalLyric != "");
+        // RefinedNowPlaying 歌词不带 LRC 间奏标记，保持原有空行清理行为
+        if (config["retrieval_method"]["value"] == "2") {
+            parsedLyric = parsedLyric.filter(item => item.originalLyric?.trim());
+        }
 
 
         // 纯音乐只显示歌曲名与作曲家
@@ -200,13 +242,33 @@ plugin.onLoad(async () => {
 
         if (force || nextIndex != currentIndex) {
             const currentLyric = parsedLyric[nextIndex - 1] ?? "";
+            const isInterludeMarker = currentLyric?.isInterludeMarker === true;
+            if (isInterludeMarker && interludeSent) {
+                currentIndex = nextIndex;
+                return;
+            }
+            if (isInterludeMarker) {
+                const hideConfig = pluginConfig.get("hide");
+                const minimumGap = Number(hideConfig["minimum_gap"]);
+                const duration = Number(currentLyric.duration) || 0;
+                if (
+                    !hideConfig["enabled"]
+                    || duration < (Number.isFinite(minimumGap) ? minimumGap : 400)
+                ) {
+                    currentIndex = nextIndex;
+                    interludeSent = false;
+                    return;
+                }
+            }
+
             const lyrics = {
                 "basic": currentLyric?.originalLyric ?? "",
                 "extra": currentLyric?.translatedLyric ?? ""
             };
             TaskbarLyricsAPI.lyrics.lyrics(lyrics);
             currentIndex = nextIndex;
-            interludeSent = false;
+            interludeSent = isInterludeMarker;
+            if (isInterludeMarker) addLog("检测到 LRC 间奏，发送空歌词", "info");
         }
     }
 
@@ -228,12 +290,12 @@ plugin.onLoad(async () => {
         const currentLyric = parsedLyric[currentLyricIndex];
         if (!currentLyric) return;
 
-        // 没有可信的 duration 就无法确定句末，跳过
+        // 逐字歌词使用真实句末；兼容不同 LibLyric 版本的起始时间字段
         const duration = currentLyric.duration ?? 0;
-        const lineStart = currentLyric.dynamicLyricTime;
+        const lineStart = currentLyric.dynamicLyricTime ?? currentLyric.time;
         const lineEnd = lineStart + duration;
         const nextLyric = parsedLyric[currentLyricIndex + 1];
-        const nextLineStart = nextLyric?.dynamicLyricTime;
+        const nextLineStart = nextLyric?.dynamicLyricTime ?? nextLyric?.time;
         const minimumGap = Number(hideConfig["minimum_gap"]);
         const gap = nextLineStart - lineEnd;
 

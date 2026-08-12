@@ -224,7 +224,8 @@ plugin.onLoad(async () => {
             result.crossfade = Boolean(saved.crossfade);
         }
         if (saved.gap !== undefined) {
-            result.gap = Math.max(0, Number(saved.gap) || 0);
+            const gap = Number(saved.gap);
+            result.gap = Number.isFinite(gap) ? Math.min(Math.max(gap, -5000), 5000) : 0;
         }
         if (saved.curve !== undefined) {
             result.curve = Number(saved.curve);
