@@ -221,6 +221,15 @@ plugin.onLoad(async () => {
             parsedLyric = parsedLyric.filter(item => item.originalLyric?.trim());
         }
 
+        // 有效歌词不足四行（含正好三行）视为未获取到歌词，保留歌曲信息
+        const effectiveLyricLines = parsedLyric.filter(item => item.originalLyric?.trim());
+        if (effectiveLyricLines.length <= 3) {
+            parsedLyric = null;
+            currentIndex = 0;
+            interludeSent = false;
+            addLog(`有效歌词仅 ${effectiveLyricLines.length} 行，不发送歌词`, "info");
+            return;
+        }
 
         // 纯音乐只显示歌曲名与作曲家
         if (
