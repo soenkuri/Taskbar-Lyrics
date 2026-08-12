@@ -221,9 +221,9 @@ plugin.onLoad(async () => {
             parsedLyric = parsedLyric.filter(item => item.originalLyric?.trim());
         }
 
-        // 有效歌词不足四行（含正好三行）视为未获取到歌词，保留歌曲信息
+        // 有效歌词少于五行（含正好四行）视为未获取到歌词，保留歌曲信息
         const effectiveLyricLines = parsedLyric.filter(item => item.originalLyric?.trim());
-        if (effectiveLyricLines.length <= 3) {
+        if (effectiveLyricLines.length < 5) {
             parsedLyric = null;
             currentIndex = 0;
             interludeSent = false;
