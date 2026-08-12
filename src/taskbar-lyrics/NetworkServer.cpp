@@ -153,18 +153,30 @@ void 网络服务器类::歌词(
     auto json = nlohmann::json::parse(req.body);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
+    const bool 是歌曲信息 = json.value("is_song_info", false);
+    const auto 新主歌词 = this->字符转换.from_bytes(
+        json["basic"].get<std::string>()
+    );
+    const auto 新副歌词 = this->字符转换.from_bytes(
+        json["extra"].get<std::string>()
+    );
+    const bool 是真实歌词 = json.value("is_real_lyric", false) && !新主歌词.empty();
+
+    // 歌曲信息显示期间，只接受下一句真实歌词或下一首歌曲信息
+    if (窗口->正在显示歌曲信息 && !是歌曲信息 && !是真实歌词)
+    {
+        res.status = 204;
+        return;
+    }
 
     // 先保存旧歌词（用于交叉淡入淡出）
     窗口->旧主歌词 = 窗口->主歌词;
     窗口->旧副歌词 = 窗口->副歌词;
 
     // 再更新为新歌词
-    窗口->主歌词 = this->字符转换.from_bytes(
-        json["basic"].get<std::string>()
-    );
-    窗口->副歌词 = this->字符转换.from_bytes(
-        json["extra"].get<std::string>()
-    );
+    窗口->主歌词 = 新主歌词;
+    窗口->副歌词 = 新副歌词;
+    窗口->正在显示歌曲信息 = 是歌曲信息;
 
     PostMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
     res.status = 200;

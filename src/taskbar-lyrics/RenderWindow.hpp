@@ -105,6 +105,7 @@ class 呈现窗口类
     bool 交叉淡入淡出 = true;
     int 淡入间隔 = 0;
     int 动画曲线 = 1;
+    bool 正在显示歌曲信息 = false;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;
 

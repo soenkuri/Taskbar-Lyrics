@@ -13,6 +13,7 @@ plugin.onLoad(async () => {
     let lastProgressTime = 0;
     let lyricLoadVersion = 0;
     let hasCurrentSongProgress = false;
+    let hasDisplayedRealLyric = false;
     let interludeSent = false;
     let isPaused = false;
     let pauseDebounceTimer = null;
@@ -22,6 +23,16 @@ plugin.onLoad(async () => {
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
+
+
+    const sendLyrics = (lyrics, { isSongInfo = false, isRealLyric = false } = {}) => {
+        if (isRealLyric) hasDisplayedRealLyric = true;
+        return TaskbarLyricsAPI.lyrics.lyrics({
+            ...lyrics,
+            "is_song_info": isSongInfo,
+            "is_real_lyric": isRealLyric
+        });
+    };
 
 
     const clearLineEndTimer = () => {
@@ -118,7 +129,9 @@ plugin.onLoad(async () => {
                     lyrics.basic = mutation.addedNodes[0].textContent;
                 }
 
-                TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+                sendLyrics(lyrics, {
+                    isRealLyric: Boolean(lyrics.basic?.trim())
+                });
             }
         }
 
@@ -139,6 +152,7 @@ plugin.onLoad(async () => {
         currentIndex = 0;
         lastProgressTime = 0;
         hasCurrentSongProgress = false;
+        hasDisplayedRealLyric = false;
         interludeSent = false;
         isPaused = false;
 
@@ -154,9 +168,11 @@ plugin.onLoad(async () => {
         artistName = artistName.slice(3);
 
         // 先发送歌曲信息；歌词加载期间不保留上一首的自动隐藏状态
-        TaskbarLyricsAPI.lyrics.lyrics({
+        sendLyrics({
             "basic": name,
             "extra": artistName
+        }, {
+            isSongInfo: true
         });
 
 
@@ -242,7 +258,13 @@ plugin.onLoad(async () => {
 
         if (force || nextIndex != currentIndex) {
             const currentLyric = parsedLyric[nextIndex - 1] ?? "";
+            const isRealLyric = Boolean(currentLyric?.originalLyric?.trim());
             const isInterludeMarker = currentLyric?.isInterludeMarker === true;
+            if (!isRealLyric && !hasDisplayedRealLyric) {
+                currentIndex = nextIndex;
+                interludeSent = false;
+                return;
+            }
             if (isInterludeMarker && interludeSent) {
                 currentIndex = nextIndex;
                 return;
@@ -265,7 +287,7 @@ plugin.onLoad(async () => {
                 "basic": currentLyric?.originalLyric ?? "",
                 "extra": currentLyric?.translatedLyric ?? ""
             };
-            TaskbarLyricsAPI.lyrics.lyrics(lyrics);
+            sendLyrics(lyrics, { isRealLyric });
             currentIndex = nextIndex;
             interludeSent = isInterludeMarker;
             if (isInterludeMarker) addLog("检测到 LRC 间奏，发送空歌词", "info");
@@ -313,12 +335,13 @@ plugin.onLoad(async () => {
                 !latestHideConfig["enabled"]
                 || isPaused
                 || interludeSent
+                || !hasDisplayedRealLyric
                 || currentIndex !== currentLyricIndex + 1
             ) return;
 
             interludeSent = true;
             addLog("当前歌词播放完成，发送空歌词", "info");
-            TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+            sendLyrics({ "basic": "", "extra": "" });
         };
 
         const queueHideCurrentLine = () => {
@@ -404,9 +427,9 @@ plugin.onLoad(async () => {
                 if (isPaused) return;
                 isPaused = true;
                 interludeSent = false;
-                if (!hasCurrentSongProgress) return;
+                if (!hasCurrentSongProgress || !hasDisplayedRealLyric) return;
                 addLog("暂停播放，发送空歌词", "info");
-                TaskbarLyricsAPI.lyrics.lyrics({ "basic": "", "extra": "" });
+                sendLyrics({ "basic": "", "extra": "" });
             }, 500);
         }
     }
@@ -453,6 +476,7 @@ plugin.onLoad(async () => {
         clearLineEndTimer();
         parsedLyric = null;
         hasCurrentSongProgress = false;
+        hasDisplayedRealLyric = false;
         musicId = 0;
         isPaused = false;
         interludeSent = false;
