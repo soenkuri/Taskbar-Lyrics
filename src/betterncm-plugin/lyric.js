@@ -76,8 +76,10 @@ plugin.onLoad(async () => {
 
     // 断线重连
     let 正在重连 = false;
-    const waitForTaskbarLyricsReady = async () => {
-        const maxAttempts = 20;
+    const wait = delay => new Promise(resolve => setTimeout(resolve, delay));
+
+
+    const waitForTaskbarLyricsReady = async (maxAttempts = 20) => {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 const response = await Promise.race([
@@ -89,7 +91,7 @@ plugin.onLoad(async () => {
                 // C++ 程序尚未完成启动，继续等待
             }
 
-            await new Promise(resolve => setTimeout(resolve, 250));
+            await wait(250);
         }
         return false;
     };
@@ -112,20 +114,59 @@ plugin.onLoad(async () => {
     };
 
 
+    const getTaskbarLyricsDataPath = async () => {
+        if (this.base.taskbarLyricsDataPath) return this.base.taskbarLyricsDataPath;
+
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                const dataPath = await betterncm.app.getDataPath();
+                if (!dataPath) throw new Error("数据目录为空");
+                this.base.taskbarLyricsDataPath = dataPath.replace("/", "\\");
+                return this.base.taskbarLyricsDataPath;
+            } catch (error) {
+                lastError = error;
+                addLog(`读取数据目录失败 (${attempt}/3)：${error?.message ?? error}`, "warn");
+                await wait(250 * attempt);
+            }
+        }
+        throw lastError ?? new Error("无法读取数据目录");
+    };
+
+
+    const restartTaskbarLyricsProcess = async () => {
+        const dataPath = await getTaskbarLyricsDataPath();
+        const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
+        // 与手动关闭后重新开启使用同一启动方式，避免 start /b 改变子进程生命周期
+        const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & ping 127.0.0.1 -n 2 > nul & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                addLog(`正在启动 C++ 程序 (${attempt}/3)...`, "info");
+                const started = await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+                if (!started) throw new Error("启动命令返回失败");
+            } catch (error) {
+                lastError = error;
+                addLog(`启动命令失败 (${attempt}/3)：${error?.message ?? error}`, "warn");
+            }
+
+            // 请求可能在返回失败前已执行，仍需探测服务是否已真正恢复
+            if (await waitForTaskbarLyricsReady(8)) return;
+            await wait(500 * attempt);
+        }
+
+        throw lastError ?? new Error("C++ 服务未在等待时间内就绪");
+    };
+
+
     const reconnect = async () => {
         if (正在重连) return;
         正在重连 = true;
         try {
             currentIndex = 0;
             addLog("检测到连接断开，正在重启 C++ 程序...", "error");
-            const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
-            const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
-            const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && start "" /b "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
-            await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
-
-            if (!await waitForTaskbarLyricsReady()) {
-                throw new Error("C++ 服务未在等待时间内就绪");
-            }
+            await restartTaskbarLyricsProcess();
 
             addLog("C++ 服务已就绪，正在恢复配置...", "success");
             await restoreTaskbarLyricsConfig();
