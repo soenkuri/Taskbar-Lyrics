@@ -69,6 +69,22 @@ body.s-theme-white #taskbar-lyrics-dom .tab_button.active::after {
     display: block;
 }
 
+#taskbar-lyrics-dom .content_box.log-active {
+    overflow: hidden;
+}
+
+#taskbar-lyrics-dom .content.log.show {
+    height: 100%;
+    overflow: hidden;
+}
+
+#taskbar-lyrics-dom .content.log.show>section {
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
 
 
 #taskbar-lyrics-dom .content h1 {
@@ -250,6 +266,8 @@ body.s-theme-white #taskbar-lyrics-dom .diagnostic-card {
     border-radius: 6px;
     padding: 8px;
     height: 400px;
+    min-height: 0;
+    flex: 1;
     overflow-y: auto;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 12px;

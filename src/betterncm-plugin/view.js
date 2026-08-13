@@ -23,9 +23,18 @@ const diagnosticsState = {
         method: "-",
         events: [],
         detail: "等待歌词监听注册",
+        registeredAt: null,
+        registeredClock: null,
+        registrationCount: 0,
         lastActivityAt: null,
         lastActivityClock: null,
         lastActivityType: ""
+    },
+    lyrics: {
+        type: "未获取",
+        effectiveLines: null,
+        interludeCount: null,
+        detail: "等待歌词解析"
     },
     match: {
         text: "尚未匹配歌词",
@@ -46,6 +55,10 @@ let diagnosticProgressEl = null;
 let diagnosticProgressDetailEl = null;
 let diagnosticListenerEl = null;
 let diagnosticListenerDetailEl = null;
+let diagnosticLyricTypeEl = null;
+let diagnosticLyricLinesEl = null;
+let diagnosticInterludeEl = null;
+let diagnosticLyricSummaryDetailEl = null;
 let diagnosticMatchEl = null;
 let diagnosticMatchDetailEl = null;
 let diagnosticHeartbeatEl = null;
@@ -98,10 +111,33 @@ const renderDiagnostics = () => {
     if (diagnosticListenerEl) diagnosticListenerEl.textContent = listener.status;
     if (diagnosticListenerDetailEl) {
         const events = listener.events.length ? listener.events.join("、") : "无事件";
+        const registration = listener.registeredAt
+            ? `本次注册 ${listener.registeredClock} · ${formatElapsed(listener.registeredAt)}${listener.registrationCount ? ` · 第 ${listener.registrationCount} 次` : ""}`
+            : "尚未完成注册";
         const activity = listener.lastActivityAt
             ? `上次活动 ${listener.lastActivityClock} · ${formatElapsed(listener.lastActivityAt)}${listener.lastActivityType ? ` · ${listener.lastActivityType}` : ""}`
             : "尚无回调活动";
-        diagnosticListenerDetailEl.textContent = [listener.method, events, activity, listener.detail]
+        diagnosticListenerDetailEl.textContent = [listener.method, events, registration, activity, listener.detail]
+            .filter(Boolean)
+            .join(" · ");
+    }
+
+    const lyrics = diagnosticsState.lyrics;
+    if (diagnosticLyricTypeEl) diagnosticLyricTypeEl.textContent = lyrics.type;
+    if (diagnosticLyricLinesEl) {
+        diagnosticLyricLinesEl.textContent = lyrics.effectiveLines === null
+            ? "未统计"
+            : `${lyrics.effectiveLines} 行`;
+    }
+    if (diagnosticInterludeEl) {
+        diagnosticInterludeEl.textContent = lyrics.interludeCount === null
+            ? "未统计"
+            : `${lyrics.interludeCount} 个`;
+    }
+    if (diagnosticLyricSummaryDetailEl) {
+        const lines = lyrics.effectiveLines === null ? "有效行数待解析" : `有效行 ${lyrics.effectiveLines}`;
+        const interludes = lyrics.interludeCount === null ? "间奏待解析" : `间奏标记 ${lyrics.interludeCount}`;
+        diagnosticLyricSummaryDetailEl.textContent = [lines, interludes, lyrics.detail]
             .filter(Boolean)
             .join(" · ");
     }
@@ -153,6 +189,11 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.listener.method = payload?.method ?? "-";
         diagnosticsState.listener.events = Array.isArray(payload?.events) ? payload.events : [];
         diagnosticsState.listener.detail = payload?.detail ?? "";
+        if (payload?.status === "已注册") {
+            diagnosticsState.listener.registeredAt = Date.now();
+            diagnosticsState.listener.registeredClock = getClockTime();
+            diagnosticsState.listener.registrationCount += 1;
+        }
         diagnosticsState.listener.lastActivityAt = Date.now();
         diagnosticsState.listener.lastActivityClock = getClockTime();
         diagnosticsState.listener.lastActivityType = payload?.activity ?? "生命周期";
@@ -162,6 +203,17 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.listener.lastActivityAt = Date.now();
         diagnosticsState.listener.lastActivityClock = getClockTime();
         diagnosticsState.listener.lastActivityType = payload?.event ?? "回调";
+        renderDiagnostics();
+    },
+    updateLyricSummary: payload => {
+        diagnosticsState.lyrics.type = payload?.type ?? "未获取";
+        diagnosticsState.lyrics.effectiveLines = Number.isInteger(payload?.effectiveLines)
+            ? payload.effectiveLines
+            : null;
+        diagnosticsState.lyrics.interludeCount = Number.isInteger(payload?.interludeCount)
+            ? payload.interludeCount
+            : null;
+        diagnosticsState.lyrics.detail = payload?.detail ?? "";
         renderDiagnostics();
     },
     updateHeartbeat: payload => {
@@ -189,9 +241,18 @@ window.TaskbarLyricsDebug = {
             method: "-",
             events: [],
             detail: "等待歌词监听注册",
+            registeredAt: null,
+            registeredClock: null,
+            registrationCount: 0,
             lastActivityAt: null,
             lastActivityClock: null,
             lastActivityType: ""
+        };
+        diagnosticsState.lyrics = {
+            type: "未获取",
+            effectiveLines: null,
+            interludeCount: null,
+            detail: "等待歌词解析"
         };
         diagnosticsState.match = {
             text: "尚未匹配歌词",
@@ -333,6 +394,7 @@ plugin.onLoad(async () => {
                 const show_content = content_box.querySelector(".show");
                 show_content.classList.remove("show");
                 all_content[index].classList.add("show");
+                content_box.classList.toggle("log-active", all_content[index].classList.contains("log"));
             });
         });
     }
@@ -736,11 +798,16 @@ plugin.onLoad(async () => {
         diagnosticProgressDetailEl = configView.querySelector(".diagnostic-progress-detail");
         diagnosticListenerEl = configView.querySelector(".diagnostic-listener");
         diagnosticListenerDetailEl = configView.querySelector(".diagnostic-listener-detail");
+        diagnosticLyricTypeEl = configView.querySelector(".diagnostic-lyric-type");
+        diagnosticLyricLinesEl = configView.querySelector(".diagnostic-lyric-lines");
+        diagnosticInterludeEl = configView.querySelector(".diagnostic-interlude");
+        diagnosticLyricSummaryDetailEl = configView.querySelector(".diagnostic-lyric-summary-detail");
         diagnosticHeartbeatEl = configView.querySelector(".diagnostic-heartbeat");
         diagnosticHeartbeatDetailEl = configView.querySelector(".diagnostic-heartbeat-detail");
         diagnosticMatchEl = configView.querySelector(".diagnostic-match");
         diagnosticMatchDetailEl = configView.querySelector(".diagnostic-match-detail");
         const diagnosticsReset = configView.querySelector(".diagnostics-reset");
+        const diagnosticsDisconnect = configView.querySelector(".diagnostics-disconnect");
 
         // 刷新缓冲区
         if (logEntriesEl) {
@@ -753,5 +820,13 @@ plugin.onLoad(async () => {
             if (logEntriesEl) logEntriesEl.innerHTML = "";
         });
         diagnosticsReset?.addEventListener("click", () => window.TaskbarLyricsDebug.reset());
+        diagnosticsDisconnect?.addEventListener("click", () => {
+            const simulateDisconnect = window.TaskbarLyricsDebugTransport?.simulateCppDisconnect;
+            if (typeof simulateDisconnect === "function") {
+                simulateDisconnect();
+            } else {
+                window.TaskbarLyricsLog?.("[调试] C++ 调试接口尚未就绪，请稍后再试", "warn");
+            }
+        });
     }
 });

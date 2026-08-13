@@ -469,6 +469,21 @@
                         <small class="diagnostic-detail diagnostic-listener-detail">等待歌词监听注册</small>
                     </div>
                     <div class="diagnostic-card">
+                        <span class="diagnostic-label">歌词类型</span>
+                        <output class="diagnostic-value diagnostic-lyric-type">未获取</output>
+                        <small class="diagnostic-detail diagnostic-lyric-summary-detail">等待歌词解析</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">有效歌词行</span>
+                        <output class="diagnostic-value diagnostic-lyric-lines">未统计</output>
+                        <small class="diagnostic-detail">少于 5 行视为无可用歌词</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">间奏标记</span>
+                        <output class="diagnostic-value diagnostic-interlude">未统计</output>
+                        <small class="diagnostic-detail">普通 LRC 空时间戳识别</small>
+                    </div>
+                    <div class="diagnostic-card">
                         <span class="diagnostic-label">C++ 心跳</span>
                         <output class="diagnostic-value diagnostic-heartbeat">未检测</output>
                         <small class="diagnostic-detail diagnostic-heartbeat-detail">等待 C++ 心跳</small>
@@ -481,6 +496,7 @@
                 </div>
                 <div class="diagnostics-actions">
                     <button class="u-ibtn5 u-ibtnsz8 diagnostics-reset">重置状态</button>
+                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-disconnect">模拟 C++ 断联（一次）</button>
                 </div>
                 <div class="log-container">
                     <div class="log-entries"></div>

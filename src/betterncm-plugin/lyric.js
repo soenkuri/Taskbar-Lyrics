@@ -216,6 +216,8 @@ plugin.onLoad(async () => {
         }
     };
 
+    window.TaskbarLyricsDebugTransport?.setReconnectHandler?.(reconnect);
+
 
     // 心跳保活
     setInterval(async () => {
@@ -257,6 +259,12 @@ plugin.onLoad(async () => {
 
         observer = new MutationObserver(MutationCallback);
         observer.observe(mLyric, { childList: true, subtree: true });
+        updateDebug("updateLyricSummary", {
+            type: "词栏监听",
+            effectiveLines: null,
+            interludeCount: null,
+            detail: "实时监听，无法统计整首歌词行数"
+        });
         return true;
     }
 
@@ -310,6 +318,14 @@ plugin.onLoad(async () => {
         // 解析歌词
         const config = pluginConfig.get("lyrics");
         const retrievalMethod = retrievalMethodName(config["retrieval_method"]["value"]);
+        let lyricType = retrievalMethod === "LibLyric" ? "静态歌词" : retrievalMethod;
+        let interludeCount = 0;
+        updateDebug("updateLyricSummary", {
+            type: "加载中",
+            effectiveLines: null,
+            interludeCount: null,
+            detail: `来源：${retrievalMethod}`
+        });
         addLog(`[歌词加载] 来源：${retrievalMethod}`, "info");
         if ((config["retrieval_method"]["value"] == "2") && window.currentLyrics) {
             // 解决RNP歌词对不上的问题
@@ -328,6 +344,7 @@ plugin.onLoad(async () => {
             const lyricText = lyricData?.lrc?.lyric ?? "";
             const useDynamicLyrics = config["request_dynamic_lyrics"]
                 && Boolean(lyricData?.yrc?.lyric?.trim());
+            lyricType = useDynamicLyrics ? "逐字（动态）歌词" : "静态歌词";
             parsedLyric = liblyric.parseLyric(
                 lyricText,
                 lyricData?.tlyric?.lyric ?? "",
@@ -337,6 +354,7 @@ plugin.onLoad(async () => {
             addLog(`[歌词加载] 类型：${useDynamicLyrics ? "逐字歌词" : "静态歌词"}`, "info");
 
             const interludeMarkers = getInterludeMarkers(lyricText);
+            interludeCount = interludeMarkers.length;
             parsedLyric = [
                 ...parsedLyric.filter(item => item.originalLyric?.trim()),
                 ...interludeMarkers
@@ -356,6 +374,12 @@ plugin.onLoad(async () => {
 
         // 有效歌词少于五行（含正好四行）视为未获取到歌词，保留歌曲信息
         const effectiveLyricLines = parsedLyric.filter(item => item.originalLyric?.trim());
+        updateDebug("updateLyricSummary", {
+            type: lyricType,
+            effectiveLines: effectiveLyricLines.length,
+            interludeCount,
+            detail: `来源：${retrievalMethod}`
+        });
         if (effectiveLyricLines.length < 5) {
             parsedLyric = null;
             currentIndex = 0;
@@ -366,6 +390,12 @@ plugin.onLoad(async () => {
                 adjustedProgress: null,
                 lineIndex: null,
                 detail: `有效歌词 ${effectiveLyricLines.length} 行，小于 5 行阈值`
+            });
+            updateDebug("updateLyricSummary", {
+                type: lyricType,
+                effectiveLines: effectiveLyricLines.length,
+                interludeCount,
+                detail: `来源：${retrievalMethod}，少于 5 行，不发送歌词`
             });
             addLog(`[歌词加载] 有效歌词仅 ${effectiveLyricLines.length} 行，不发送歌词`, "info");
             return;
@@ -628,6 +658,8 @@ plugin.onLoad(async () => {
 
     // 开始获取歌词
     function startGetLyric() {
+        // 兼容脚本加载顺序，确保日志页的断联模拟能够调用真实重连流程。
+        window.TaskbarLyricsDebugTransport?.setReconnectHandler?.(reconnect);
         const config = pluginConfig.get("lyrics");
         const retrievalMethod = config["retrieval_method"]["value"];
         const methodName = retrievalMethodName(retrievalMethod);
