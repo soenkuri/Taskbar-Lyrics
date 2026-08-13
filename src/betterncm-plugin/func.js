@@ -28,16 +28,7 @@ plugin.onLoad(async () => {
         const cmd = `${taskkill} & ${xcopy} && ${exec}`;
         await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
         addLog("C++ 程序已启动，端口: " + TaskbarLyricsPort, "success");
-        addLog("正在发送配置...", "info");
-        TaskbarLyricsAPI.font.font(pluginConfig.get("font"));
-        TaskbarLyricsAPI.font.color(pluginConfig.get("color"));
-        TaskbarLyricsAPI.font.style(pluginConfig.get("style"));
-        TaskbarLyricsAPI.window.position(pluginConfig.get("position"));
-        TaskbarLyricsAPI.window.margin(pluginConfig.get("margin"));
-        TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align"));
-        TaskbarLyricsAPI.window.screen(pluginConfig.get("screen"));
-        TaskbarLyricsAPI.animation(pluginConfig.get("transition"));
-        addLog("配置发送完成", "success");
+        addLog("C++ 将从 taskbar-lyrics.ini 加载配置", "info");
         startGetLyric();
         addLog("歌词监听已启动", "success");
     };
@@ -268,6 +259,8 @@ plugin.onLoad(async () => {
             const config = JSON.parse(JSON.stringify(pluginConfig.get("margin")));
             config["left"] = Number(elements.left.value);
             config["right"] = Number(elements.right.value);
+            config["single_bottom"] = Number(elements.singleBottom.value);
+            config["double_bottom"] = Number(elements.doubleBottom.value);
             pluginConfig.set("margin", config);
             TaskbarLyricsAPI.window.margin(config);
         },
@@ -276,6 +269,8 @@ plugin.onLoad(async () => {
             TaskbarLyricsAPI.window.margin(defaultConfig["margin"]);
             elements.left.value = defaultConfig["margin"]["left"];
             elements.right.value = defaultConfig["margin"]["right"];
+            elements.singleBottom.value = defaultConfig["margin"]["single_bottom"];
+            elements.doubleBottom.value = defaultConfig["margin"]["double_bottom"];
         }
     }
 

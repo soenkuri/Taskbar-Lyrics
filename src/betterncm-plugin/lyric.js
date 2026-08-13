@@ -97,23 +97,6 @@ plugin.onLoad(async () => {
     };
 
 
-    const restoreTaskbarLyricsConfig = async () => {
-        const responses = await Promise.all([
-            TaskbarLyricsAPI.font.font(pluginConfig.get("font")),
-            TaskbarLyricsAPI.font.color(pluginConfig.get("color")),
-            TaskbarLyricsAPI.font.style(pluginConfig.get("style")),
-            TaskbarLyricsAPI.window.position(pluginConfig.get("position")),
-            TaskbarLyricsAPI.window.margin(pluginConfig.get("margin")),
-            TaskbarLyricsAPI.lyrics.align(pluginConfig.get("align")),
-            TaskbarLyricsAPI.window.screen(pluginConfig.get("screen")),
-            TaskbarLyricsAPI.animation(pluginConfig.get("transition"))
-        ]);
-        if (responses.some(response => !response.ok)) {
-            throw new Error("配置恢复请求被服务端拒绝");
-        }
-    };
-
-
     const getTaskbarLyricsDataPath = async () => {
         if (this.base.taskbarLyricsDataPath) return this.base.taskbarLyricsDataPath;
 
@@ -168,8 +151,7 @@ plugin.onLoad(async () => {
             addLog("检测到连接断开，正在重启 C++ 程序...", "error");
             await restartTaskbarLyricsProcess();
 
-            addLog("C++ 服务已就绪，正在恢复配置...", "success");
-            await restoreTaskbarLyricsConfig();
+            addLog("C++ 服务已就绪，已从 taskbar-lyrics.ini 加载配置", "success");
             stopGetLyric();
             startGetLyric();
             addLog("重连完成，已重新加载当前歌曲", "success");

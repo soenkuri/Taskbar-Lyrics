@@ -33,6 +33,8 @@ class 呈现窗口类
     HWND 开始按钮_句柄;
     HWND 活动区域_句柄;
 
+    std::wstring 任务栏窗口类名 = L"Shell_TrayWnd";
+
     RECT 任务栏_矩形;
     RECT 通知区域_矩形;
     RECT 开始按钮_矩形;
@@ -71,8 +73,8 @@ class 呈现窗口类
     D2D1::ColorF 字体颜色_深色_主歌词 = D2D1::ColorF(0xFFFFFF, 1);
     D2D1::ColorF 字体颜色_深色_副歌词 = D2D1::ColorF(0xFFFFFF, 1);
 
-    DWRITE_FONT_WEIGHT 字体样式_主歌词_字重 = DWRITE_FONT_WEIGHT_LIGHT;
-    DWRITE_FONT_WEIGHT 字体样式_副歌词_字重 = DWRITE_FONT_WEIGHT_LIGHT;
+    DWRITE_FONT_WEIGHT 字体样式_主歌词_字重 = DWRITE_FONT_WEIGHT_NORMAL;
+    DWRITE_FONT_WEIGHT 字体样式_副歌词_字重 = DWRITE_FONT_WEIGHT_NORMAL;
     DWRITE_FONT_STYLE 字体样式_主歌词_斜体 = DWRITE_FONT_STYLE_NORMAL;
     DWRITE_FONT_STYLE 字体样式_副歌词_斜体 = DWRITE_FONT_STYLE_NORMAL;
     
@@ -85,6 +87,8 @@ class 呈现窗口类
 
     int 左边距 = 0;
     int 右边距 = 0;
+    int 单行底部边距 = 0;
+    int 双行底部边距 = 0;
 
     DWRITE_TEXT_ALIGNMENT 对齐方式_主歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;
     DWRITE_TEXT_ALIGNMENT 对齐方式_副歌词 = DWRITE_TEXT_ALIGNMENT::DWRITE_TEXT_ALIGNMENT_CENTER;

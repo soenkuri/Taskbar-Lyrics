@@ -94,6 +94,14 @@ void 呈现窗口类::更新窗口()
     long 宽 = 0;
     long 高 = this->任务栏_矩形.bottom - this->任务栏_矩形.top;
 
+    // 通过缩短窗口高度预留底部边距，单行和双行歌词分别使用独立配置。
+    const int 底部边距 = this->副歌词.empty() ? this->单行底部边距 : this->双行底部边距;
+    高 -= 底部边距;
+    if (高 < 1)
+    {
+        高 = 1;
+    }
+
     switch (this->窗口位置)
     {
         case WindowAlignment::WindowAlignmentAdaptive:

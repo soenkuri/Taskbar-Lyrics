@@ -175,7 +175,9 @@ plugin.onLoad(async () => {
         },
         "margin": {
             "left": 0,
-            "right": 0
+            "right": 0,
+            "single_bottom": 0,
+            "double_bottom": 0
         },
         "screen": {
             "parent_taskbar": {

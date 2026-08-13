@@ -6,6 +6,7 @@ Debug
 
 dist_debug
 dist/taskbar-lyrics.pdb
+taskbar-lyrics.ini
 
 betterncm-plugin.vcxproj.user
 taskbar-lyrics.vcxproj.user

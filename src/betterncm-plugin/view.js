@@ -391,10 +391,14 @@ plugin.onLoad(async () => {
 
         const left = configView.querySelector(".content.window .margin-settings .left");
         const right = configView.querySelector(".content.window .margin-settings .right");
+        const singleBottom = configView.querySelector(".content.window .margin-settings .single-bottom");
+        const doubleBottom = configView.querySelector(".content.window .margin-settings .double-bottom");
 
         const elements = {
             left,
-            right
+            right,
+            singleBottom,
+            doubleBottom
         }
 
         apply.addEventListener("click", () => margin.apply(elements));
@@ -402,6 +406,8 @@ plugin.onLoad(async () => {
 
         left.value = pluginConfig.get("margin")["left"];
         right.value = pluginConfig.get("margin")["right"];
+        singleBottom.value = pluginConfig.get("margin")["single_bottom"] ?? 0;
+        doubleBottom.value = pluginConfig.get("margin")["double_bottom"] ?? 0;
     }
 
 

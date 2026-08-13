@@ -2,6 +2,129 @@
 #include "CreateWindow.hpp"
 #include "nlohmann/json.hpp"
 #include <d2d1.h>
+#include <array>
+#include <iomanip>
+#include <sstream>
+
+
+namespace
+{
+std::wstring 读取字符串(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    const std::wstring& 默认值
+) {
+    std::array<wchar_t, 1024> 缓冲区 = {};
+    GetPrivateProfileStringW(
+        节,
+        键,
+        默认值.c_str(),
+        缓冲区.data(),
+        static_cast<DWORD>(缓冲区.size()),
+        文件路径.c_str()
+    );
+    return std::wstring(缓冲区.data());
+}
+
+
+int 读取整数(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    int 默认值
+) {
+    return GetPrivateProfileIntW(节, 键, 默认值, 文件路径.c_str());
+}
+
+
+float 读取浮点数(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    float 默认值
+) {
+    const auto 文本 = 读取字符串(文件路径, 节, 键, L"");
+    if (文本.empty()) return 默认值;
+
+    try
+    {
+        return std::stof(文本);
+    }
+    catch (...)
+    {
+        return 默认值;
+    }
+}
+
+
+void 写入字符串(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    const std::wstring& 值
+) {
+    WritePrivateProfileStringW(节, 键, 值.c_str(), 文件路径.c_str());
+}
+
+
+void 写入整数(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    int 值
+) {
+    写入字符串(文件路径, 节, 键, std::to_wstring(值));
+}
+
+
+void 写入浮点数(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    float 值
+) {
+    std::wostringstream 文本;
+    文本 << std::setprecision(9) << 值;
+    写入字符串(文件路径, 节, 键, 文本.str());
+}
+
+
+void 写入布尔值(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const wchar_t* 键,
+    bool 值
+) {
+    写入整数(文件路径, 节, 键, 值 ? 1 : 0);
+}
+
+
+D2D1::ColorF 读取颜色(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const D2D1::ColorF& 默认值
+) {
+    return D2D1::ColorF(
+        读取浮点数(文件路径, 节, L"red", 默认值.r),
+        读取浮点数(文件路径, 节, L"green", 默认值.g),
+        读取浮点数(文件路径, 节, L"blue", 默认值.b),
+        读取浮点数(文件路径, 节, L"alpha", 默认值.a)
+    );
+}
+
+
+void 写入颜色(
+    const std::wstring& 文件路径,
+    const wchar_t* 节,
+    const D2D1::ColorF& 值
+) {
+    写入浮点数(文件路径, 节, L"red", 值.r);
+    写入浮点数(文件路径, 节, L"green", 值.g);
+    写入浮点数(文件路径, 节, L"blue", 值.b);
+    写入浮点数(文件路径, 节, L"alpha", 值.a);
+}
+}
 
 
 网络服务器类::网络服务器类(
@@ -9,6 +132,9 @@
     unsigned short 端口
 ) {
     this->任务栏窗口 = 任务栏窗口;
+    this->初始化配置路径();
+    this->加载配置();
+    this->保存配置();
 
     auto handler = [this] (auto func) {
         auto bind = std::bind(func,this,std::placeholders::_1,std::placeholders::_2);
@@ -51,6 +177,7 @@ void 网络服务器类::字体(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     std::wstring 新字体名称 = this->字符转换.from_bytes(
         json["font_family"].get<std::string>()
@@ -62,6 +189,9 @@ void 网络服务器类::字体(
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
 
+    this->保存配置();
+    this->加载配置();
+
     res.status = 200;
 }
 
@@ -71,6 +201,7 @@ void 网络服务器类::颜色(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     D2D1::ColorF 新_浅色_主 = D2D1::ColorF(
         json["basic"]["light"]["hex_color"].get<unsigned int>(),
@@ -106,6 +237,9 @@ void 网络服务器类::颜色(
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
 
+    this->保存配置();
+    this->加载配置();
+
     res.status = 200;
 }
 
@@ -115,6 +249,7 @@ void 网络服务器类::样式(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
     DWRITE_FONT_WEIGHT 新_主_字重 = json["basic"]["weight"]["value"].get<DWRITE_FONT_WEIGHT>();
@@ -142,6 +277,9 @@ void 网络服务器类::样式(
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
 
+    this->保存配置();
+    this->加载配置();
+
     res.status = 200;
 }
 
@@ -151,6 +289,7 @@ void 网络服务器类::歌词(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
     const bool 是歌曲信息 = json.value("is_song_info", false);
@@ -188,6 +327,7 @@ void 网络服务器类::对齐(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
     DWRITE_TEXT_ALIGNMENT 新_主 = json["basic"].get<DWRITE_TEXT_ALIGNMENT>();
@@ -200,6 +340,9 @@ void 网络服务器类::对齐(
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
 
+    this->保存配置();
+    this->加载配置();
+
     res.status = 200;
 }
 
@@ -209,6 +352,7 @@ void 网络服务器类::位置(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     WindowAlignment 新位置 = json["position"]["value"].get<WindowAlignment>();
 
@@ -217,6 +361,9 @@ void 网络服务器类::位置(
         this->任务栏窗口->呈现窗口->窗口位置 = 新位置;
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
+
+    this->保存配置();
+    this->加载配置();
 
     res.status = 200;
 }
@@ -227,17 +374,26 @@ void 网络服务器类::边距(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     int 新左 = json["left"].get<int>();
     int 新右 = json["right"].get<int>();
+    int 新单行底部 = json.value("single_bottom", 0);
+    int 新双行底部 = json.value("double_bottom", 0);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
-    if (窗口->左边距 != 新左 || 窗口->右边距 != 新右)
+    if (窗口->左边距 != 新左 || 窗口->右边距 != 新右 ||
+        窗口->单行底部边距 != 新单行底部 || 窗口->双行底部边距 != 新双行底部)
     {
         窗口->左边距 = 新左;
         窗口->右边距 = 新右;
+        窗口->单行底部边距 = 新单行底部;
+        窗口->双行底部边距 = 新双行底部;
         PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     }
+
+    this->保存配置();
+    this->加载配置();
 
     res.status = 200;
 }
@@ -248,17 +404,12 @@ void 网络服务器类::屏幕(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
     auto parent_taskbar = json["parent_taskbar"]["value"].get<std::string>();
 
-    this->任务栏窗口->呈现窗口->任务栏_句柄 = FindWindow(this->字符转换.from_bytes(parent_taskbar).c_str(), NULL);
-    this->任务栏窗口->呈现窗口->开始按钮_句柄 = FindWindowEx(this->任务栏窗口->呈现窗口->任务栏_句柄, NULL, L"Start", NULL);
-
-    GetWindowRect(this->任务栏窗口->呈现窗口->任务栏_句柄, &this->任务栏窗口->呈现窗口->任务栏_矩形);
-    GetWindowRect(this->任务栏窗口->呈现窗口->开始按钮_句柄, &this->任务栏窗口->呈现窗口->开始按钮_矩形);
-
-    SetParent(this->任务栏窗口->窗口句柄, this->任务栏窗口->呈现窗口->任务栏_句柄);
-
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    this->应用屏幕(this->字符转换.from_bytes(parent_taskbar));
+    this->保存配置();
+    this->加载配置();
     res.status = 200;
 }
 
@@ -268,6 +419,7 @@ void 网络服务器类::过渡动画(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
+    std::lock_guard<std::mutex> 锁(this->配置互斥);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
     窗口->淡入时长 = json["fade_in"]["duration"].get<int>();
@@ -277,6 +429,9 @@ void 网络服务器类::过渡动画(
     窗口->交叉淡入淡出 = json.value("crossfade", true);
     窗口->淡入间隔 = json.value("gap", 0);
     窗口->动画曲线 = json["curve"].get<int>();
+
+    this->保存配置();
+    this->加载配置();
 
     res.status = 200;
 }
@@ -300,4 +455,278 @@ void 网络服务器类::关闭(
     PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
     PostMessage(this->任务栏窗口->窗口句柄, WM_CLOSE, NULL, NULL);
     res.status = 200;
+}
+
+
+void 网络服务器类::初始化配置路径()
+{
+    wchar_t 模块路径[MAX_PATH] = {};
+    const DWORD 路径长度 = GetModuleFileNameW(
+        nullptr,
+        模块路径,
+        static_cast<DWORD>(_countof(模块路径))
+    );
+
+    if (路径长度 == 0)
+    {
+        this->配置文件路径 = L"taskbar-lyrics.ini";
+        return;
+    }
+
+    this->配置文件路径.assign(模块路径, 路径长度);
+    const auto 分隔符 = this->配置文件路径.find_last_of(L"\\/");
+    if (分隔符 == std::wstring::npos)
+    {
+        this->配置文件路径 = L"taskbar-lyrics.ini";
+    }
+    else
+    {
+        this->配置文件路径.erase(分隔符 + 1);
+        this->配置文件路径 += L"taskbar-lyrics.ini";
+    }
+}
+
+
+void 网络服务器类::保存配置()
+{
+    if (this->任务栏窗口 == nullptr || this->任务栏窗口->呈现窗口 == nullptr)
+    {
+        return;
+    }
+
+    const auto& 窗口 = this->任务栏窗口->呈现窗口;
+
+    写入字符串(this->配置文件路径, L"Font", L"family", 窗口->字体名称);
+
+    写入颜色(this->配置文件路径, L"Color.Basic.Light", 窗口->字体颜色_浅色_主歌词);
+    写入颜色(this->配置文件路径, L"Color.Basic.Dark", 窗口->字体颜色_深色_主歌词);
+    写入颜色(this->配置文件路径, L"Color.Extra.Light", 窗口->字体颜色_浅色_副歌词);
+    写入颜色(this->配置文件路径, L"Color.Extra.Dark", 窗口->字体颜色_深色_副歌词);
+
+    写入整数(this->配置文件路径, L"Style.Basic", L"weight", static_cast<int>(窗口->字体样式_主歌词_字重));
+    写入整数(this->配置文件路径, L"Style.Basic", L"slope", static_cast<int>(窗口->字体样式_主歌词_斜体));
+    写入布尔值(this->配置文件路径, L"Style.Basic", L"underline", 窗口->字体样式_主歌词_下划线);
+    写入布尔值(this->配置文件路径, L"Style.Basic", L"strikethrough", 窗口->字体样式_主歌词_删除线);
+    写入整数(this->配置文件路径, L"Style.Extra", L"weight", static_cast<int>(窗口->字体样式_副歌词_字重));
+    写入整数(this->配置文件路径, L"Style.Extra", L"slope", static_cast<int>(窗口->字体样式_副歌词_斜体));
+    写入布尔值(this->配置文件路径, L"Style.Extra", L"underline", 窗口->字体样式_副歌词_下划线);
+    写入布尔值(this->配置文件路径, L"Style.Extra", L"strikethrough", 窗口->字体样式_副歌词_删除线);
+
+    写入整数(this->配置文件路径, L"Lyrics", L"basic_alignment", static_cast<int>(窗口->对齐方式_主歌词));
+    写入整数(this->配置文件路径, L"Lyrics", L"extra_alignment", static_cast<int>(窗口->对齐方式_副歌词));
+
+    写入整数(this->配置文件路径, L"Window", L"position", static_cast<int>(窗口->窗口位置));
+    写入整数(this->配置文件路径, L"Window", L"left_margin", 窗口->左边距);
+    写入整数(this->配置文件路径, L"Window", L"right_margin", 窗口->右边距);
+    写入整数(this->配置文件路径, L"Window", L"single_bottom_margin", 窗口->单行底部边距);
+    写入整数(this->配置文件路径, L"Window", L"double_bottom_margin", 窗口->双行底部边距);
+    写入字符串(this->配置文件路径, L"Window", L"parent_taskbar", 窗口->任务栏窗口类名);
+
+    写入整数(this->配置文件路径, L"Animation", L"fade_in_duration", 窗口->淡入时长);
+    写入整数(this->配置文件路径, L"Animation", L"fade_out_duration", 窗口->淡出时长);
+    写入整数(this->配置文件路径, L"Animation", L"frame_rate", 窗口->帧率);
+    写入整数(this->配置文件路径, L"Animation", L"overlap", 窗口->重叠时间);
+    写入布尔值(this->配置文件路径, L"Animation", L"crossfade", 窗口->交叉淡入淡出);
+    写入整数(this->配置文件路径, L"Animation", L"gap", 窗口->淡入间隔);
+    写入整数(this->配置文件路径, L"Animation", L"curve", 窗口->动画曲线);
+
+    // 强制刷新 profile 缓存，确保后续重载读取到刚刚写入的值。
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, this->配置文件路径.c_str());
+}
+
+
+void 网络服务器类::加载配置()
+{
+    if (this->任务栏窗口 == nullptr || this->任务栏窗口->呈现窗口 == nullptr)
+    {
+        return;
+    }
+
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+
+    窗口->字体名称 = 读取字符串(
+        this->配置文件路径,
+        L"Font",
+        L"family",
+        窗口->字体名称
+    );
+    if (窗口->字体名称.empty())
+    {
+        窗口->字体名称 = L"Microsoft YaHei UI";
+    }
+
+    窗口->字体颜色_浅色_主歌词 = 读取颜色(
+        this->配置文件路径,
+        L"Color.Basic.Light",
+        窗口->字体颜色_浅色_主歌词
+    );
+    窗口->字体颜色_深色_主歌词 = 读取颜色(
+        this->配置文件路径,
+        L"Color.Basic.Dark",
+        窗口->字体颜色_深色_主歌词
+    );
+    窗口->字体颜色_浅色_副歌词 = 读取颜色(
+        this->配置文件路径,
+        L"Color.Extra.Light",
+        窗口->字体颜色_浅色_副歌词
+    );
+    窗口->字体颜色_深色_副歌词 = 读取颜色(
+        this->配置文件路径,
+        L"Color.Extra.Dark",
+        窗口->字体颜色_深色_副歌词
+    );
+
+    窗口->字体样式_主歌词_字重 = static_cast<DWRITE_FONT_WEIGHT>(读取整数(
+        this->配置文件路径,
+        L"Style.Basic",
+        L"weight",
+        static_cast<int>(窗口->字体样式_主歌词_字重)
+    ));
+    窗口->字体样式_主歌词_斜体 = static_cast<DWRITE_FONT_STYLE>(读取整数(
+        this->配置文件路径,
+        L"Style.Basic",
+        L"slope",
+        static_cast<int>(窗口->字体样式_主歌词_斜体)
+    ));
+    窗口->字体样式_主歌词_下划线 = 读取整数(
+        this->配置文件路径,
+        L"Style.Basic",
+        L"underline",
+        窗口->字体样式_主歌词_下划线 ? 1 : 0
+    ) != 0;
+    窗口->字体样式_主歌词_删除线 = 读取整数(
+        this->配置文件路径,
+        L"Style.Basic",
+        L"strikethrough",
+        窗口->字体样式_主歌词_删除线 ? 1 : 0
+    ) != 0;
+    窗口->字体样式_副歌词_字重 = static_cast<DWRITE_FONT_WEIGHT>(读取整数(
+        this->配置文件路径,
+        L"Style.Extra",
+        L"weight",
+        static_cast<int>(窗口->字体样式_副歌词_字重)
+    ));
+    窗口->字体样式_副歌词_斜体 = static_cast<DWRITE_FONT_STYLE>(读取整数(
+        this->配置文件路径,
+        L"Style.Extra",
+        L"slope",
+        static_cast<int>(窗口->字体样式_副歌词_斜体)
+    ));
+    窗口->字体样式_副歌词_下划线 = 读取整数(
+        this->配置文件路径,
+        L"Style.Extra",
+        L"underline",
+        窗口->字体样式_副歌词_下划线 ? 1 : 0
+    ) != 0;
+    窗口->字体样式_副歌词_删除线 = 读取整数(
+        this->配置文件路径,
+        L"Style.Extra",
+        L"strikethrough",
+        窗口->字体样式_副歌词_删除线 ? 1 : 0
+    ) != 0;
+
+    窗口->对齐方式_主歌词 = static_cast<DWRITE_TEXT_ALIGNMENT>(读取整数(
+        this->配置文件路径,
+        L"Lyrics",
+        L"basic_alignment",
+        static_cast<int>(窗口->对齐方式_主歌词)
+    ));
+    窗口->对齐方式_副歌词 = static_cast<DWRITE_TEXT_ALIGNMENT>(读取整数(
+        this->配置文件路径,
+        L"Lyrics",
+        L"extra_alignment",
+        static_cast<int>(窗口->对齐方式_副歌词)
+    ));
+
+    窗口->窗口位置 = static_cast<WindowAlignment>(读取整数(
+        this->配置文件路径,
+        L"Window",
+        L"position",
+        static_cast<int>(窗口->窗口位置)
+    ));
+    窗口->左边距 = 读取整数(this->配置文件路径, L"Window", L"left_margin", 窗口->左边距);
+    窗口->右边距 = 读取整数(this->配置文件路径, L"Window", L"right_margin", 窗口->右边距);
+    窗口->单行底部边距 = 读取整数(
+        this->配置文件路径,
+        L"Window",
+        L"single_bottom_margin",
+        窗口->单行底部边距
+    );
+    窗口->双行底部边距 = 读取整数(
+        this->配置文件路径,
+        L"Window",
+        L"double_bottom_margin",
+        窗口->双行底部边距
+    );
+
+    auto 任务栏类名 = 读取字符串(
+        this->配置文件路径,
+        L"Window",
+        L"parent_taskbar",
+        窗口->任务栏窗口类名
+    );
+    if (任务栏类名.empty())
+    {
+        任务栏类名 = L"Shell_TrayWnd";
+    }
+    窗口->任务栏窗口类名 = 任务栏类名;
+
+    窗口->淡入时长 = 读取整数(this->配置文件路径, L"Animation", L"fade_in_duration", 窗口->淡入时长);
+    窗口->淡出时长 = 读取整数(this->配置文件路径, L"Animation", L"fade_out_duration", 窗口->淡出时长);
+    窗口->帧率 = 读取整数(this->配置文件路径, L"Animation", L"frame_rate", 窗口->帧率);
+    窗口->重叠时间 = 读取整数(this->配置文件路径, L"Animation", L"overlap", 窗口->重叠时间);
+    窗口->交叉淡入淡出 = 读取整数(
+        this->配置文件路径,
+        L"Animation",
+        L"crossfade",
+        窗口->交叉淡入淡出 ? 1 : 0
+    ) != 0;
+    窗口->淡入间隔 = 读取整数(this->配置文件路径, L"Animation", L"gap", 窗口->淡入间隔);
+    窗口->动画曲线 = 读取整数(this->配置文件路径, L"Animation", L"curve", 窗口->动画曲线);
+
+    this->应用屏幕(任务栏类名);
+    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+}
+
+
+void 网络服务器类::应用屏幕(const std::wstring& 任务栏类名)
+{
+    if (this->任务栏窗口 == nullptr || this->任务栏窗口->呈现窗口 == nullptr || 任务栏类名.empty())
+    {
+        return;
+    }
+
+    auto& 窗口 = this->任务栏窗口->呈现窗口;
+    窗口->任务栏窗口类名 = 任务栏类名;
+    HWND 任务栏句柄 = FindWindow(任务栏类名.c_str(), NULL);
+    if (任务栏句柄 == nullptr)
+    {
+        return;
+    }
+
+    窗口->任务栏_句柄 = 任务栏句柄;
+    窗口->通知区域_句柄 = FindWindowEx(任务栏句柄, NULL, L"TrayNotifyWnd", NULL);
+    窗口->开始按钮_句柄 = FindWindowEx(任务栏句柄, NULL, L"Start", NULL);
+    HWND 最小化区域句柄 = FindWindowEx(任务栏句柄, NULL, L"ReBarWindow32", NULL);
+    窗口->活动区域_句柄 = FindWindowEx(最小化区域句柄, NULL, L"MSTaskSwWClass", NULL);
+
+    if (窗口->任务栏_句柄 != nullptr)
+    {
+        GetWindowRect(窗口->任务栏_句柄, &窗口->任务栏_矩形);
+    }
+    if (窗口->通知区域_句柄 != nullptr)
+    {
+        GetWindowRect(窗口->通知区域_句柄, &窗口->通知区域_矩形);
+    }
+    if (窗口->开始按钮_句柄 != nullptr)
+    {
+        GetWindowRect(窗口->开始按钮_句柄, &窗口->开始按钮_矩形);
+    }
+    if (窗口->活动区域_句柄 != nullptr)
+    {
+        GetWindowRect(窗口->活动区域_句柄, &窗口->活动区域_矩形);
+    }
+
+    SetParent(this->任务栏窗口->窗口句柄, 任务栏句柄);
+    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
 }
