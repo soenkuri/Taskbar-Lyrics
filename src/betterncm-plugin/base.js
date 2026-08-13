@@ -3,17 +3,31 @@
 
 plugin.onLoad(async () => {
     const TaskbarLyricsPort = BETTERNCM_API_PORT - 2;
+    const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
 
-    const TaskbarLyricsFetch = (path, params) => fetch(
-        `http://127.0.0.1:${TaskbarLyricsPort}/taskbar${path}`,
-        {
-            method: "POST",
-            body: JSON.stringify(params),
-            headers: {
-                "Content-Type": "application/json"
-            }
+    const TaskbarLyricsFetch = async (path, params) => {
+        const body = JSON.stringify(params ?? {});
+        const endpoint = `POST /taskbar${path}`;
+        addLog(`[C++发送] ${endpoint} body=${body}`, "info");
+
+        try {
+            const response = await fetch(
+                `http://127.0.0.1:${TaskbarLyricsPort}/taskbar${path}`,
+                {
+                    method: "POST",
+                    body,
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                }
+            );
+            addLog(`[C++响应] ${endpoint} status=${response.status}`, response.ok ? "info" : "warn");
+            return response;
+        } catch (error) {
+            addLog(`[C++请求失败] ${endpoint} body=${body} error=${error?.message ?? error}`, "error");
+            throw error;
         }
-    );
+    };
 
     const TaskbarLyricsAPI = {
         // 字体设置
