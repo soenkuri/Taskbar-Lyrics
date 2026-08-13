@@ -18,6 +18,9 @@ const diagnosticsState = {
         correctedTime: null,
         adjustedTime: null,
         automaticOffset: null,
+        bufferCorrection: null,
+        bufferCorrectionStatus: "未检测",
+        bufferCorrectionReason: "等待缓冲前跳",
         correctionStatus: "未开始",
         correctionReason: "等待播放进度",
         correctionCount: 0,
@@ -60,6 +63,8 @@ const diagnosticsState = {
 };
 let diagnosticProgressEl = null;
 let diagnosticProgressDetailEl = null;
+let diagnosticBufferCorrectionEl = null;
+let diagnosticBufferCorrectionDetailEl = null;
 let diagnosticListenerEl = null;
 let diagnosticListenerDetailEl = null;
 let diagnosticLyricTypeEl = null;
@@ -155,6 +160,18 @@ const renderDiagnostics = () => {
             ].filter(Boolean).join(" · ");
         }
     }
+    if (diagnosticBufferCorrectionEl) {
+        diagnosticBufferCorrectionEl.textContent = playback.bufferCorrection === null
+            ? "未检测"
+            : formatDiagnosticSignedSeconds(playback.bufferCorrection);
+    }
+    if (diagnosticBufferCorrectionDetailEl) {
+        diagnosticBufferCorrectionDetailEl.textContent = playback.bufferCorrection === null
+            ? "等待缓冲前跳"
+            : [playback.bufferCorrectionStatus, playback.bufferCorrectionReason]
+                .filter(Boolean)
+                .join(" · ");
+    }
 
     const listener = diagnosticsState.listener;
     if (diagnosticListenerEl) diagnosticListenerEl.textContent = listener.status;
@@ -238,6 +255,9 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.playback.correctedTime = toFiniteNumber(payload?.correctedTime);
         diagnosticsState.playback.adjustedTime = toFiniteNumber(payload?.adjustedTime);
         diagnosticsState.playback.automaticOffset = toFiniteNumber(payload?.automaticOffset);
+        diagnosticsState.playback.bufferCorrection = toFiniteNumber(payload?.bufferCorrection);
+        diagnosticsState.playback.bufferCorrectionStatus = payload?.bufferCorrectionStatus ?? "未知";
+        diagnosticsState.playback.bufferCorrectionReason = payload?.bufferCorrectionReason ?? "";
         diagnosticsState.playback.correctionStatus = payload?.correctionStatus ?? "未知";
         diagnosticsState.playback.correctionReason = payload?.correctionReason ?? "";
         diagnosticsState.playback.correctionCount = Number.isInteger(payload?.correctionCount)
@@ -308,6 +328,9 @@ window.TaskbarLyricsDebug = {
             correctedTime: null,
             adjustedTime: null,
             automaticOffset: null,
+            bufferCorrection: null,
+            bufferCorrectionStatus: "未检测",
+            bufferCorrectionReason: "等待缓冲前跳",
             correctionStatus: "未开始",
             correctionReason: "等待播放进度",
             correctionCount: 0,
@@ -877,6 +900,8 @@ plugin.onLoad(async () => {
         const logClear = configView.querySelector(".log-clear");
         diagnosticProgressEl = configView.querySelector(".diagnostic-progress");
         diagnosticProgressDetailEl = configView.querySelector(".diagnostic-progress-detail");
+        diagnosticBufferCorrectionEl = configView.querySelector(".diagnostic-buffer-correction");
+        diagnosticBufferCorrectionDetailEl = configView.querySelector(".diagnostic-buffer-correction-detail");
         diagnosticListenerEl = configView.querySelector(".diagnostic-listener");
         diagnosticListenerDetailEl = configView.querySelector(".diagnostic-listener-detail");
         diagnosticLyricTypeEl = configView.querySelector(".diagnostic-lyric-type");

@@ -25,17 +25,20 @@ plugin.onLoad(async () => {
     let registeredRetrievalMethod = null;
     let listenerRegistrationToken = 0;
     // 网易云在缓冲、跳转期间可能短暂回调异常的播放进度。
-    // 这里保留原始进度，同时对播放中的前跳和回退做保守校正；真正的
-    // 可听时间无法仅靠 PlayProgress 观测，因此所有校正状态都会展示在诊断卡片中。
-    const PROGRESS_JUMP_THRESHOLD = 1;
+    // PlayProgress 没有直接暴露真实音频时钟，因此这里只对“短时间内的异常前跳”
+    // 估算缓冲领先量，并持续从后续进度中扣除；明显拖动或重新播放时清零。
     const PROGRESS_RAPID_DELTA_THRESHOLD = 0.5;
-    const PROGRESS_RAPID_LEAD_THRESHOLD = 0.25;
+    const PROGRESS_RAPID_LEAD_THRESHOLD = 0.15;
+    const PROGRESS_BUFFER_MAX_ELAPSED = 1;
+    const PROGRESS_BUFFER_MAX_DELTA = 2;
+    const PROGRESS_MAX_CORRECTION = 3;
+    const PROGRESS_BACKWARD_REANCHOR_THRESHOLD = 0.25;
     const PROGRESS_START_EPSILON = 0.01;
     let lastReportedProgress = null;
     let lastProgressTimestamp = null;
     let correctedProgress = null;
     let progressPlaybackState = "unknown";
-    let pendingForwardProgress = null;
+    let bufferCorrection = 0;
     let progressCorrectionStatus = "未开始";
     let progressCorrectionReason = "等待播放进度";
     let progressCorrectionCount = 0;
@@ -61,15 +64,26 @@ plugin.onLoad(async () => {
         lastProgressTimestamp = null;
         correctedProgress = null;
         progressPlaybackState = "unknown";
-        pendingForwardProgress = null;
+        bufferCorrection = 0;
         progressCorrectionStatus = "未开始";
         progressCorrectionReason = "等待播放进度";
         progressCorrectionCount = 0;
+        updateDebug("updatePlaybackProgress", {
+            rawTime: null,
+            correctedTime: null,
+            adjustedTime: null,
+            automaticOffset: null,
+            bufferCorrection: null,
+            bufferCorrectionStatus: "未检测",
+            bufferCorrectionReason: "等待缓冲前跳",
+            correctionStatus: progressCorrectionStatus,
+            correctionReason: progressCorrectionReason,
+            correctionCount: progressCorrectionCount
+        });
     };
 
 
-    // 参考上游歌词适配器的单调进度保护：异常前跳先等待一个稳定回调，
-    // 小幅回退在播放中保持上一有效值，暂停或明确跳转时允许重新锚定。
+    // 参考上游歌词适配器的单调进度保护，并尝试估算缓冲导致的时间领先。
     const correctPlaybackProgress = value => {
         const rawProgress = Number(value);
         if (!Number.isFinite(rawProgress)) {
@@ -90,69 +104,76 @@ plugin.onLoad(async () => {
             correctedProgress = normalizedProgress;
             progressCorrectionStatus = "已初始化";
             progressCorrectionReason = "首次有效播放进度";
-            pendingForwardProgress = null;
             return correctedProgress;
         }
 
         const delta = normalizedProgress - previousReported;
         const isPlaying = progressPlaybackState === "playing";
         const isReset = normalizedProgress <= PROGRESS_START_EPSILON && previousReported > PROGRESS_START_EPSILON;
-        const isLargeBackwardJump = delta < -PROGRESS_JUMP_THRESHOLD;
+        const isBackwardSeek = delta < -PROGRESS_BACKWARD_REANCHOR_THRESHOLD;
+        const isLargeForwardSeek = delta > PROGRESS_BUFFER_MAX_DELTA;
         const elapsed = previousTimestamp === null
             ? null
             : Math.max(0, (now - previousTimestamp) / 1000);
+        const forwardExcess = elapsed === null ? null : delta - elapsed;
         const isRapidForward = delta > PROGRESS_RAPID_DELTA_THRESHOLD
             && elapsed !== null
-            && delta - elapsed > PROGRESS_RAPID_LEAD_THRESHOLD;
+            && elapsed <= PROGRESS_BUFFER_MAX_ELAPSED
+            && forwardExcess >= PROGRESS_RAPID_LEAD_THRESHOLD;
 
-        // 回到起点或明显向后跳转通常是重新播放/用户拖动，立即接受新锚点，
-        // 否则单调保护会让用户无法向前后拖动进度。
-        if (isReset || isLargeBackwardJump || !isPlaying) {
+        // 回到起点、明显回退或大幅前跳通常是重新播放/用户拖动，立即接受新锚点，
+        // 同时清除旧的缓冲校正量，避免把旧歌曲的偏移带到新的时间轴。
+        if (isReset || isBackwardSeek || isLargeForwardSeek) {
+            bufferCorrection = 0;
             correctedProgress = normalizedProgress;
-            pendingForwardProgress = null;
-            progressCorrectionStatus = isPlaying && (isReset || isLargeBackwardJump)
-                ? "重新锚定"
-                : "正常";
+            progressCorrectionStatus = isPlaying ? "重新锚定" : "正常";
             progressCorrectionReason = isReset
                 ? "检测到回到起点，接受新的播放锚点"
-                : isLargeBackwardJump
+                : isBackwardSeek
                     ? "检测到向后跳转，接受新的播放锚点"
-                    : "暂停状态不做单调限制";
+                    : "检测到大幅前跳，按用户拖动重新锚定";
             return correctedProgress;
         }
 
-        // 播放中的异常前跳可能来自缓冲期间累计的时间。先保留上一有效值，
-        // 下一次回调稳定后再重新锚定，避免一次异常值直接切换到错误歌词。
-        if (pendingForwardProgress !== null) {
-            if (Math.abs(normalizedProgress - pendingForwardProgress) <= PROGRESS_JUMP_THRESHOLD) {
-                correctedProgress = normalizedProgress;
-                pendingForwardProgress = null;
-                progressCorrectionStatus = "已重新锚定";
-                progressCorrectionReason = "连续进度稳定，确认新的播放位置";
-            } else {
-                pendingForwardProgress = normalizedProgress;
-                progressCorrectionStatus = "等待确认";
-                progressCorrectionReason = "连续进度仍在跳变，暂保留上一有效值";
-            }
+        // 暂停状态没有可靠的实时音频时钟，只应用已有校正量，不再估算新偏移。
+        if (!isPlaying) {
+            correctedProgress = Math.max(0, normalizedProgress + bufferCorrection);
+            progressCorrectionStatus = bufferCorrection ? "保持校正" : "正常";
+            progressCorrectionReason = bufferCorrection
+                ? `暂停中保持缓冲校正量 ${bufferCorrection.toFixed(2)} 秒`
+                : "暂停状态不估算缓冲偏移";
             return correctedProgress;
         }
 
-        if (delta > PROGRESS_JUMP_THRESHOLD || isRapidForward) {
-            pendingForwardProgress = normalizedProgress;
+        // 进度在短时间内比真实经过的墙钟时间多走一截，视为缓冲期间的累计前跳。
+        // 把这段差值累积为负偏移，后续每次匹配歌词都继续扣除，而不是只压住一次回调。
+        let bufferCorrectionApplied = false;
+        if (isRapidForward && delta <= PROGRESS_BUFFER_MAX_DELTA) {
+            const correction = Math.min(
+                PROGRESS_MAX_CORRECTION,
+                Math.max(0, forwardExcess)
+            );
+            bufferCorrection = Math.max(
+                -PROGRESS_MAX_CORRECTION,
+                bufferCorrection - correction
+            );
             progressCorrectionCount++;
-            progressCorrectionStatus = "等待确认";
-            progressCorrectionReason = `${isRapidForward ? "疑似缓冲" : "播放中检测到"}前跳 ${delta.toFixed(2)} 秒，暂保留上一有效值`;
-            return correctedProgress;
+            bufferCorrectionApplied = true;
+            progressCorrectionStatus = "缓冲已校正";
+            progressCorrectionReason = `疑似缓冲前跳 ${forwardExcess.toFixed(2)} 秒，持续扣除校正量`;
         }
 
-        const nextProgress = Math.max(previousCorrected, normalizedProgress);
-        if (nextProgress !== normalizedProgress) {
+        const correctedCandidate = Math.max(0, normalizedProgress + bufferCorrection);
+        const nextProgress = Math.max(previousCorrected, correctedCandidate);
+        if (nextProgress !== correctedCandidate) {
             progressCorrectionCount++;
             progressCorrectionStatus = "抑制回退";
-            progressCorrectionReason = "播放中忽略小幅回退，保持时间轴单调";
-        } else {
-            progressCorrectionStatus = progressCorrectionCount > 0 ? "已校正" : "正常";
-            progressCorrectionReason = "进度连续";
+            progressCorrectionReason = "播放中忽略小幅回退，保持校正后时间轴单调";
+        } else if (!bufferCorrectionApplied) {
+            progressCorrectionStatus = bufferCorrection ? "保持校正" : "正常";
+            progressCorrectionReason = bufferCorrection
+                ? `持续扣除缓冲校正量 ${bufferCorrection.toFixed(2)} 秒`
+                : "进度连续";
         }
         correctedProgress = nextProgress;
         return correctedProgress;
@@ -939,6 +960,9 @@ plugin.onLoad(async () => {
             correctedTime,
             adjustedTime,
             automaticOffset: correctedTime === null ? null : correctedTime - numericTime,
+            bufferCorrection,
+            bufferCorrectionStatus: progressCorrectionStatus,
+            bufferCorrectionReason: progressCorrectionReason,
             correctionStatus: progressCorrectionStatus,
             correctionReason: progressCorrectionReason,
             correctionCount: progressCorrectionCount
@@ -980,7 +1004,6 @@ plugin.onLoad(async () => {
         }
 
         progressPlaybackState = playing ? "playing" : "paused";
-        if (!playing) pendingForwardProgress = null;
         if (stateTime !== null) {
             const correctedTime = correctPlaybackProgress(stateTime);
             if (correctedTime !== null) lastProgressTime = correctedTime;
