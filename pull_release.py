@@ -8,7 +8,7 @@ DEST_DIR = r"C:\betterncm\plugins"
 CLOUDMUSIC = r"C:\Program Files (x86)\NetEase\CloudMusic\cloudmusic.exe"
 
 
-def remove_file_with_retry(path, max_attempts=5, initial_delay=0.25):
+def remove_file_with_retry(path, max_attempts=10, initial_delay=0.25):
     """删除可能仍被系统短暂占用的单个文件。"""
     for attempt in range(max_attempts):
         try:
@@ -43,9 +43,11 @@ time.sleep(1)
 
 # 清理文件
 exe_path = r"C:\betterncm\taskbar-lyrics.exe"
-if os.path.exists(exe_path):
-    remove_file_with_retry(exe_path)
-    print(f"已删除 {exe_path}")
+config_path = r"C:\betterncm\taskbar-lyrics.ini"
+for path in [exe_path, config_path]:
+    if os.path.exists(path):
+        remove_file_with_retry(path)
+        print(f"已删除 {path}")
 
 runtime_dir = r"C:\betterncm\plugins_runtime\Taskbar-Lyrics"
 if os.path.exists(runtime_dir):
