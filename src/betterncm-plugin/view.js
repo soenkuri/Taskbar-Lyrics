@@ -22,7 +22,10 @@ const diagnosticsState = {
         status: "未注册",
         method: "-",
         events: [],
-        detail: "等待歌词监听注册"
+        detail: "等待歌词监听注册",
+        lastActivityAt: null,
+        lastActivityClock: null,
+        lastActivityType: ""
     },
     match: {
         text: "尚未匹配歌词",
@@ -30,6 +33,13 @@ const diagnosticsState = {
         adjustedProgress: null,
         lineIndex: null,
         detail: "等待歌词加载"
+    },
+    heartbeat: {
+        status: "未检测",
+        statusCode: null,
+        detail: "等待 C++ 心跳",
+        lastAt: null,
+        lastClock: null
     }
 };
 let diagnosticProgressEl = null;
@@ -38,6 +48,8 @@ let diagnosticListenerEl = null;
 let diagnosticListenerDetailEl = null;
 let diagnosticMatchEl = null;
 let diagnosticMatchDetailEl = null;
+let diagnosticHeartbeatEl = null;
+let diagnosticHeartbeatDetailEl = null;
 
 
 const getClockTime = () => {
@@ -59,6 +71,16 @@ const formatDiagnosticSeconds = value => {
 };
 
 
+const formatElapsed = timestamp => {
+    if (!timestamp) return "尚无记录";
+    const elapsed = Math.max(0, Date.now() - timestamp);
+    if (elapsed < 1000) return "刚刚";
+    if (elapsed < 60000) return `${Math.floor(elapsed / 1000)}秒前`;
+    if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)}分钟前`;
+    return `${Math.floor(elapsed / 3600000)}小时前`;
+};
+
+
 const renderDiagnostics = () => {
     const playback = diagnosticsState.playback;
     if (diagnosticProgressEl) {
@@ -76,7 +98,10 @@ const renderDiagnostics = () => {
     if (diagnosticListenerEl) diagnosticListenerEl.textContent = listener.status;
     if (diagnosticListenerDetailEl) {
         const events = listener.events.length ? listener.events.join("、") : "无事件";
-        diagnosticListenerDetailEl.textContent = [listener.method, events, listener.detail]
+        const activity = listener.lastActivityAt
+            ? `上次活动 ${listener.lastActivityClock} · ${formatElapsed(listener.lastActivityAt)}${listener.lastActivityType ? ` · ${listener.lastActivityType}` : ""}`
+            : "尚无回调活动";
+        diagnosticListenerDetailEl.textContent = [listener.method, events, activity, listener.detail]
             .filter(Boolean)
             .join(" · ");
     }
@@ -94,7 +119,24 @@ const renderDiagnostics = () => {
             .filter(Boolean)
             .join(" · ");
     }
+
+    const heartbeat = diagnosticsState.heartbeat;
+    if (diagnosticHeartbeatEl) {
+        diagnosticHeartbeatEl.textContent = heartbeat.status;
+    }
+    if (diagnosticHeartbeatDetailEl) {
+        const lastHeartbeat = heartbeat.lastAt
+            ? `上次 ${heartbeat.lastClock} · ${formatElapsed(heartbeat.lastAt)}`
+            : "尚无心跳记录";
+        const statusCode = heartbeat.statusCode ? `HTTP ${heartbeat.statusCode}` : "";
+        diagnosticHeartbeatDetailEl.textContent = [lastHeartbeat, statusCode, heartbeat.detail]
+            .filter(Boolean)
+            .join(" · ");
+    }
 };
+
+
+setInterval(renderDiagnostics, 1000);
 
 
 // 高频播放进度和低频监听/歌词匹配状态单独展示，不写入滚动日志。
@@ -111,6 +153,25 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.listener.method = payload?.method ?? "-";
         diagnosticsState.listener.events = Array.isArray(payload?.events) ? payload.events : [];
         diagnosticsState.listener.detail = payload?.detail ?? "";
+        diagnosticsState.listener.lastActivityAt = Date.now();
+        diagnosticsState.listener.lastActivityClock = getClockTime();
+        diagnosticsState.listener.lastActivityType = payload?.activity ?? "生命周期";
+        renderDiagnostics();
+    },
+    touchListener: payload => {
+        diagnosticsState.listener.lastActivityAt = Date.now();
+        diagnosticsState.listener.lastActivityClock = getClockTime();
+        diagnosticsState.listener.lastActivityType = payload?.event ?? "回调";
+        renderDiagnostics();
+    },
+    updateHeartbeat: payload => {
+        diagnosticsState.heartbeat.status = payload?.status ?? "未知";
+        diagnosticsState.heartbeat.statusCode = Number.isInteger(payload?.statusCode)
+            ? payload.statusCode
+            : null;
+        diagnosticsState.heartbeat.detail = payload?.detail ?? "";
+        diagnosticsState.heartbeat.lastAt = Date.now();
+        diagnosticsState.heartbeat.lastClock = getClockTime();
         renderDiagnostics();
     },
     updateLyricMatch: payload => {
@@ -127,7 +188,10 @@ window.TaskbarLyricsDebug = {
             status: "未注册",
             method: "-",
             events: [],
-            detail: "等待歌词监听注册"
+            detail: "等待歌词监听注册",
+            lastActivityAt: null,
+            lastActivityClock: null,
+            lastActivityType: ""
         };
         diagnosticsState.match = {
             text: "尚未匹配歌词",
@@ -135,6 +199,13 @@ window.TaskbarLyricsDebug = {
             adjustedProgress: null,
             lineIndex: null,
             detail: "等待歌词加载"
+        };
+        diagnosticsState.heartbeat = {
+            status: "未检测",
+            statusCode: null,
+            detail: "等待 C++ 心跳",
+            lastAt: null,
+            lastClock: null
         };
         renderDiagnostics();
     }
@@ -206,6 +277,41 @@ plugin.onLoad(async () => {
         const element = document.createElement("style");
         element.textContent = text;
         configView.appendChild(element);
+    }
+
+
+    // 加载关于页面的构建信息
+    {
+        const fields = {
+            name: configView.querySelector(".plugin-info-name"),
+            version: configView.querySelector(".plugin-info-version"),
+            buildTime: configView.querySelector(".plugin-info-build-time"),
+            channel: configView.querySelector(".plugin-info-channel"),
+            commit: configView.querySelector(".plugin-info-commit")
+        };
+        const readJson = async filename => {
+            try {
+                return JSON.parse(await betterncm.fs.readFileText(`${this.pluginPath}/${filename}`));
+            } catch {
+                return {};
+            }
+        };
+        const formatBuildTime = value => {
+            if (!value) return "未提供";
+            const timestamp = Date.parse(value);
+            if (!Number.isFinite(timestamp)) return value;
+            return `${new Date(timestamp).toLocaleString()}（本地时间）`;
+        };
+
+        const manifest = await readJson("manifest.json");
+        const buildInfo = await readJson("build-info.json");
+        fields.name.textContent = buildInfo.name || manifest.name || "任务栏歌词";
+        fields.version.textContent = buildInfo.version || manifest.version || "未提供";
+        fields.buildTime.textContent = formatBuildTime(buildInfo.build_time);
+        fields.channel.textContent = buildInfo.channel || "未提供";
+        fields.commit.textContent = buildInfo.commit
+            ? String(buildInfo.commit).slice(0, 12)
+            : "未提供";
     }
 
 
@@ -295,13 +401,13 @@ plugin.onLoad(async () => {
         apply.addEventListener("click", () => color.apply(elements));
         reset.addEventListener("click", () => color.reset(elements));
 
-        basicLightColor.value = `#${pluginConfig.get("color")["basic"]["light"]["hex_color"].toString(16)}`;
+        basicLightColor.value = `#${pluginConfig.get("color")["basic"]["light"]["hex_color"].toString(16).padStart(6, "0")}`;
         basicLightOpacity.value = pluginConfig.get("color")["basic"]["light"]["opacity"];
-        basicDarkColor.value = `#${pluginConfig.get("color")["basic"]["dark"]["hex_color"].toString(16)}`;
+        basicDarkColor.value = `#${pluginConfig.get("color")["basic"]["dark"]["hex_color"].toString(16).padStart(6, "0")}`;
         basicDarkOpacity.value = pluginConfig.get("color")["basic"]["dark"]["opacity"];
-        extraLightColor.value = `#${pluginConfig.get("color")["extra"]["light"]["hex_color"].toString(16)}`;
+        extraLightColor.value = `#${pluginConfig.get("color")["extra"]["light"]["hex_color"].toString(16).padStart(6, "0")}`;
         extraLightOpacity.value = pluginConfig.get("color")["extra"]["light"]["opacity"];
-        extraDarkColor.value = `#${pluginConfig.get("color")["extra"]["dark"]["hex_color"].toString(16)}`;
+        extraDarkColor.value = `#${pluginConfig.get("color")["extra"]["dark"]["hex_color"].toString(16).padStart(6, "0")}`;
         extraDarkOpacity.value = pluginConfig.get("color")["extra"]["dark"]["opacity"];
     }
 
@@ -630,6 +736,8 @@ plugin.onLoad(async () => {
         diagnosticProgressDetailEl = configView.querySelector(".diagnostic-progress-detail");
         diagnosticListenerEl = configView.querySelector(".diagnostic-listener");
         diagnosticListenerDetailEl = configView.querySelector(".diagnostic-listener-detail");
+        diagnosticHeartbeatEl = configView.querySelector(".diagnostic-heartbeat");
+        diagnosticHeartbeatDetailEl = configView.querySelector(".diagnostic-heartbeat-detail");
         diagnosticMatchEl = configView.querySelector(".diagnostic-match");
         diagnosticMatchDetailEl = configView.querySelector(".diagnostic-match-detail");
         const diagnosticsReset = configView.querySelector(".diagnostics-reset");

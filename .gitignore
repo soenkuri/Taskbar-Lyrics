@@ -1,5 +1,7 @@
 .vs
 .vscode
+__pycache__/
+*.py[cod]
 
 Release
 Debug

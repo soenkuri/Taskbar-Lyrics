@@ -73,8 +73,8 @@ class 呈现窗口类
     D2D1::ColorF 字体颜色_深色_主歌词 = D2D1::ColorF(0xFFFFFF, 1);
     D2D1::ColorF 字体颜色_深色_副歌词 = D2D1::ColorF(0xFFFFFF, 1);
 
-    DWRITE_FONT_WEIGHT 字体样式_主歌词_字重 = DWRITE_FONT_WEIGHT_NORMAL;
-    DWRITE_FONT_WEIGHT 字体样式_副歌词_字重 = DWRITE_FONT_WEIGHT_NORMAL;
+    DWRITE_FONT_WEIGHT 字体样式_主歌词_字重 = DWRITE_FONT_WEIGHT_LIGHT;
+    DWRITE_FONT_WEIGHT 字体样式_副歌词_字重 = DWRITE_FONT_WEIGHT_LIGHT;
     DWRITE_FONT_STYLE 字体样式_主歌词_斜体 = DWRITE_FONT_STYLE_NORMAL;
     DWRITE_FONT_STYLE 字体样式_副歌词_斜体 = DWRITE_FONT_STYLE_NORMAL;
     
@@ -102,13 +102,13 @@ class 呈现窗口类
     int 淡出动画进度 = 0;
     int 淡入总步数 = 24;
     int 淡出总步数 = 24;
-    int 淡入时长 = 400;
-    int 淡出时长 = 400;
-    int 帧率 = 60;
-    int 重叠时间 = 400;
-    bool 交叉淡入淡出 = true;
-    int 淡入间隔 = 0;
-    int 动画曲线 = 1;
+    int 淡入时长 = 250;
+    int 淡出时长 = 150;
+    int 帧率 = 90;
+    int 重叠时间 = 300;
+    bool 交叉淡入淡出 = false;
+    int 淡入间隔 = 10;
+    int 动画曲线 = 3;
     bool 正在显示歌曲信息 = false;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;

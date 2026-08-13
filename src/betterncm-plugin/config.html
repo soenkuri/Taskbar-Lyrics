@@ -382,6 +382,29 @@
                 </h1>
                 <div class="text_container">
                     <p>
+                        <span>插件名称：</span>
+                        <span class="plugin-info-name">读取中...</span>
+                    </p>
+                    <p>
+                        <span>插件版本：</span>
+                        <span class="plugin-info-version">读取中...</span>
+                    </p>
+                    <p>
+                        <span>编译时间：</span>
+                        <span class="plugin-info-build-time">读取中...</span>
+                    </p>
+                    <p>
+                        <span>构建分支：</span>
+                        <span class="plugin-info-channel">读取中...</span>
+                    </p>
+                    <p>
+                        <span>Git 提交：</span>
+                        <span class="plugin-info-commit">读取中...</span>
+                    </p>
+                    <p>插件由 BetterNCM 插件端与 taskbar-lyrics.exe 软件端共同组成。</p>
+                    <p>编译时间、构建分支和提交信息由发布构建流程写入；本地开发构建会显示相应的占位信息。</p>
+                    <p>==================================================</p>
+                    <p>
                         <span>作者名称：</span>
                         <a onclick="betterncm.ncm.openUrl(this.title)" title="https://github.com/mo-jinran">🌈沫烬染🐾</a>
                     </p>
@@ -444,6 +467,11 @@
                         <span class="diagnostic-label">歌词监听</span>
                         <output class="diagnostic-value diagnostic-listener">未注册</output>
                         <small class="diagnostic-detail diagnostic-listener-detail">等待歌词监听注册</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">C++ 心跳</span>
+                        <output class="diagnostic-value diagnostic-heartbeat">未检测</output>
+                        <small class="diagnostic-detail diagnostic-heartbeat-detail">等待 C++ 心跳</small>
                     </div>
                     <div class="diagnostic-card diagnostic-card-wide">
                         <span class="diagnostic-label">当前歌词匹配</span>

@@ -8,7 +8,10 @@ plugin.onLoad(async () => {
     const TaskbarLyricsFetch = async (path, params) => {
         const body = JSON.stringify(params ?? {});
         const endpoint = `POST /taskbar${path}`;
-        addLog(`[C++请求] 发送 ${endpoint}\n  参数：${body}`, "info");
+        const isHeartbeat = path === "/ping";
+        if (!isHeartbeat) {
+            addLog(`[C++请求] 发送 ${endpoint}\n  参数：${body}`, "info");
+        }
 
         try {
             const response = await fetch(
@@ -21,10 +24,26 @@ plugin.onLoad(async () => {
                     }
                 }
             );
-            addLog(`[C++响应] ${endpoint} 返回 ${response.status}`, response.ok ? "info" : "warn");
+            if (isHeartbeat) {
+                window.TaskbarLyricsDebug?.updateHeartbeat?.({
+                    status: response.ok ? "正常" : "异常",
+                    statusCode: response.status,
+                    detail: response.ok ? "C++ 服务在线" : "C++ 返回异常状态"
+                });
+            } else {
+                addLog(`[C++响应] ${endpoint} 返回 ${response.status}`, response.ok ? "info" : "warn");
+            }
             return response;
         } catch (error) {
-            addLog(`[C++请求] ${endpoint} 失败\n  参数：${body}\n  原因：${error?.message ?? error}`, "error");
+            if (isHeartbeat) {
+                window.TaskbarLyricsDebug?.updateHeartbeat?.({
+                    status: "断开",
+                    statusCode: null,
+                    detail: error?.message ?? String(error)
+                });
+            } else {
+                addLog(`[C++请求] ${endpoint} 失败\n  参数：${body}\n  原因：${error?.message ?? error}`, "error");
+            }
             throw error;
         }
     };
@@ -132,8 +151,8 @@ plugin.onLoad(async () => {
         "style": {
             "basic": {
                 "weight": {
-                    "value": WindowsEnum.DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_NORMAL,
-                    "textContent": "Normal (400)"
+                    "value": WindowsEnum.DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_LIGHT,
+                    "textContent": "Light (300)"
                 },
                 "slope": WindowsEnum.DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_NORMAL,
                 "underline": false,
@@ -141,8 +160,8 @@ plugin.onLoad(async () => {
             },
             "extra": {
                 "weight": {
-                    "value": WindowsEnum.DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_NORMAL,
-                    "textContent": "Normal (400)"
+                    "value": WindowsEnum.DWRITE_FONT_WEIGHT.DWRITE_FONT_WEIGHT_LIGHT,
+                    "textContent": "Light (300)"
                 },
                 "slope": WindowsEnum.DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_NORMAL,
                 "underline": false,
@@ -187,16 +206,16 @@ plugin.onLoad(async () => {
         },
         "transition": {
             "fade_in": {
-                "duration": 400
+                "duration": 250
             },
             "fade_out": {
-                "duration": 400
+                "duration": 150
             },
-            "frame_rate": 60,
-            "overlap": 400,
-            "crossfade": true,
-            "gap": 0,
-            "curve": 1
+            "frame_rate": 90,
+            "overlap": 300,
+            "crossfade": false,
+            "gap": 10,
+            "curve": 3
         }
     };
 

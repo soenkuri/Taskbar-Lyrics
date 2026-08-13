@@ -10,6 +10,9 @@
     <None Include="src\betterncm-plugin\base.js">
       <Filter>源文件</Filter>
     </None>
+    <None Include="src\betterncm-plugin\build-info.json">
+      <Filter>源文件</Filter>
+    </None>
     <None Include="src\betterncm-plugin\config.html">
       <Filter>源文件</Filter>
     </None>

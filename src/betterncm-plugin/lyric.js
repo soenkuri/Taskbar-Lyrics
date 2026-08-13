@@ -37,12 +37,6 @@ plugin.onLoad(async () => {
     }[Number(value)] ?? `未知方式(${value})`);
 
 
-    const formatSeconds = value => {
-        const number = Number(value);
-        return Number.isFinite(number) ? `${number.toFixed(2)}秒` : "无效进度";
-    };
-
-
     const shortenLyric = value => {
         const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
         if (!text) return "（间奏或空白）";
@@ -67,10 +61,6 @@ plugin.onLoad(async () => {
             text: matchText,
             detail
         });
-        addLog(
-            `[歌词匹配] 根据 ${formatSeconds(progress)}（校准后 ${formatSeconds(adjustedProgress)}）匹配到${lineIndex < 0 ? "歌曲开头" : `第 ${lineIndex + 1} 行`}：${matchText}${detail ? `（${detail}）` : ""}`,
-            "info"
-        );
     };
 
 
@@ -245,6 +235,7 @@ plugin.onLoad(async () => {
         const mLyric = await betterncm.utils.waitForElement("#x-g-mn .m-lyric");
         if (observer) observer.disconnect();
         const MutationCallback = mutations => {
+            updateDebug("touchListener", { event: "MutationObserver" });
             for (const mutation of mutations) {
                 let lyrics = {
                     basic: "",
@@ -272,6 +263,7 @@ plugin.onLoad(async () => {
 
     // 音乐ID发生变化时
     const play_load = async () => {
+        updateDebug("touchListener", { event: "Load" });
         const loadVersion = ++lyricLoadVersion;
         clearLineEndTimer();
         if (pauseDebounceTimer) {
@@ -558,6 +550,7 @@ plugin.onLoad(async () => {
 
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
+        updateDebug("touchListener", { event: "PlayProgress" });
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
         const numericTime = Number(time);
         const adjustedTime = numericTime + (Number.isFinite(adjust) ? adjust : 0);
@@ -574,6 +567,7 @@ plugin.onLoad(async () => {
 
     // 播放状态变化：暂停发空歌词，恢复立即补发当前歌词
     const play_state = async (_, state) => {
+        updateDebug("touchListener", { event: "PlayState" });
         let playing;
         if (typeof state === "boolean") playing = state;
         else if (typeof state === "number") playing = state !== 0;

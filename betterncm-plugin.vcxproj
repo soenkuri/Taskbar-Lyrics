@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="src\betterncm-plugin\base.js" />
+    <None Include="src\betterncm-plugin\build-info.json" />
     <None Include="src\betterncm-plugin\config.html" />
     <None Include="src\betterncm-plugin\func.js" />
     <None Include="src\betterncm-plugin\lyric.js" />
