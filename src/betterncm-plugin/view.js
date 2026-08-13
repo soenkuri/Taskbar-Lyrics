@@ -12,11 +12,136 @@ configView.style.width = "100%";
 const logBuffer = [];
 let logEntriesEl = null;
 let logContainerEl = null;
+const diagnosticsState = {
+    playback: {
+        rawTime: null,
+        adjustedTime: null,
+        updatedAt: null
+    },
+    listener: {
+        status: "未注册",
+        method: "-",
+        events: [],
+        detail: "等待歌词监听注册"
+    },
+    match: {
+        text: "尚未匹配歌词",
+        progress: null,
+        adjustedProgress: null,
+        lineIndex: null,
+        detail: "等待歌词加载"
+    }
+};
+let diagnosticProgressEl = null;
+let diagnosticProgressDetailEl = null;
+let diagnosticListenerEl = null;
+let diagnosticListenerDetailEl = null;
+let diagnosticMatchEl = null;
+let diagnosticMatchDetailEl = null;
+
+
+const getClockTime = () => {
+    const now = new Date();
+    return [now.getHours(), now.getMinutes(), now.getSeconds()]
+        .map(n => String(n).padStart(2, "0")).join(":");
+};
+
+
+const toFiniteNumber = value => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+};
+
+
+const formatDiagnosticSeconds = value => {
+    const number = toFiniteNumber(value);
+    return number === null ? "无效" : `${number.toFixed(2)}秒`;
+};
+
+
+const renderDiagnostics = () => {
+    const playback = diagnosticsState.playback;
+    if (diagnosticProgressEl) {
+        diagnosticProgressEl.textContent = playback.rawTime === null
+            ? "未获取"
+            : formatDiagnosticSeconds(playback.rawTime);
+    }
+    if (diagnosticProgressDetailEl) {
+        diagnosticProgressDetailEl.textContent = playback.rawTime === null
+            ? "等待播放进度回调"
+            : `校准后 ${formatDiagnosticSeconds(playback.adjustedTime)} · ${playback.updatedAt}`;
+    }
+
+    const listener = diagnosticsState.listener;
+    if (diagnosticListenerEl) diagnosticListenerEl.textContent = listener.status;
+    if (diagnosticListenerDetailEl) {
+        const events = listener.events.length ? listener.events.join("、") : "无事件";
+        diagnosticListenerDetailEl.textContent = [listener.method, events, listener.detail]
+            .filter(Boolean)
+            .join(" · ");
+    }
+
+    const match = diagnosticsState.match;
+    if (diagnosticMatchEl) diagnosticMatchEl.textContent = match.text;
+    if (diagnosticMatchDetailEl) {
+        const progress = match.progress === null
+            ? "等待进度"
+            : `根据 ${formatDiagnosticSeconds(match.progress)}（校准后 ${formatDiagnosticSeconds(match.adjustedProgress)}）`;
+        const line = match.lineIndex === null
+            ? ""
+            : `第 ${match.lineIndex + 1} 行`;
+        diagnosticMatchDetailEl.textContent = [progress, line, match.detail]
+            .filter(Boolean)
+            .join(" · ");
+    }
+};
+
+
+// 高频播放进度和低频监听/歌词匹配状态单独展示，不写入滚动日志。
+window.TaskbarLyricsDebug = {
+    updatePlaybackProgress: payload => {
+        const rawTime = toFiniteNumber(payload?.rawTime);
+        diagnosticsState.playback.rawTime = rawTime;
+        diagnosticsState.playback.adjustedTime = toFiniteNumber(payload?.adjustedTime);
+        diagnosticsState.playback.updatedAt = getClockTime();
+        renderDiagnostics();
+    },
+    updateListener: payload => {
+        diagnosticsState.listener.status = payload?.status ?? "未知";
+        diagnosticsState.listener.method = payload?.method ?? "-";
+        diagnosticsState.listener.events = Array.isArray(payload?.events) ? payload.events : [];
+        diagnosticsState.listener.detail = payload?.detail ?? "";
+        renderDiagnostics();
+    },
+    updateLyricMatch: payload => {
+        diagnosticsState.match.text = payload?.text ?? "尚未匹配歌词";
+        diagnosticsState.match.progress = toFiniteNumber(payload?.progress);
+        diagnosticsState.match.adjustedProgress = toFiniteNumber(payload?.adjustedProgress);
+        diagnosticsState.match.lineIndex = Number.isInteger(payload?.lineIndex) ? payload.lineIndex : null;
+        diagnosticsState.match.detail = payload?.detail ?? "";
+        renderDiagnostics();
+    },
+    reset: () => {
+        diagnosticsState.playback = { rawTime: null, adjustedTime: null, updatedAt: null };
+        diagnosticsState.listener = {
+            status: "未注册",
+            method: "-",
+            events: [],
+            detail: "等待歌词监听注册"
+        };
+        diagnosticsState.match = {
+            text: "尚未匹配歌词",
+            progress: null,
+            adjustedProgress: null,
+            lineIndex: null,
+            detail: "等待歌词加载"
+        };
+        renderDiagnostics();
+    }
+};
 
 window.TaskbarLyricsLog = (message, level = "info") => {
-    const now = new Date();
-    const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
-        .map(n => String(n).padStart(2, "0")).join(":");
+    const time = getClockTime();
 
     const entry = document.createElement("div");
     entry.className = `log-entry log-${level}`;
@@ -501,15 +626,24 @@ plugin.onLoad(async () => {
         logEntriesEl = configView.querySelector(".log-entries");
         logContainerEl = configView.querySelector(".log-container");
         const logClear = configView.querySelector(".log-clear");
+        diagnosticProgressEl = configView.querySelector(".diagnostic-progress");
+        diagnosticProgressDetailEl = configView.querySelector(".diagnostic-progress-detail");
+        diagnosticListenerEl = configView.querySelector(".diagnostic-listener");
+        diagnosticListenerDetailEl = configView.querySelector(".diagnostic-listener-detail");
+        diagnosticMatchEl = configView.querySelector(".diagnostic-match");
+        diagnosticMatchDetailEl = configView.querySelector(".diagnostic-match-detail");
+        const diagnosticsReset = configView.querySelector(".diagnostics-reset");
 
         // 刷新缓冲区
         if (logEntriesEl) {
             logBuffer.forEach(e => logEntriesEl.appendChild(e));
             logBuffer.length = 0;
         }
+        renderDiagnostics();
 
         logClear.addEventListener("click", () => {
             if (logEntriesEl) logEntriesEl.innerHTML = "";
         });
+        diagnosticsReset?.addEventListener("click", () => window.TaskbarLyricsDebug.reset());
     }
 });

@@ -431,9 +431,29 @@
         <div class="content log">
             <section>
                 <h1>
-                    <strong>实时程序日志</strong>
+                    <strong>实时调试信息</strong>
                     <button class="u-ibtn5 u-ibtnsz8 log-clear">清空</button>
                 </h1>
+                <div class="diagnostics-grid" aria-live="polite">
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">播放进度</span>
+                        <output class="diagnostic-value diagnostic-progress">未获取</output>
+                        <small class="diagnostic-detail diagnostic-progress-detail">等待播放进度回调</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">歌词监听</span>
+                        <output class="diagnostic-value diagnostic-listener">未注册</output>
+                        <small class="diagnostic-detail diagnostic-listener-detail">等待歌词监听注册</small>
+                    </div>
+                    <div class="diagnostic-card diagnostic-card-wide">
+                        <span class="diagnostic-label">当前歌词匹配</span>
+                        <output class="diagnostic-value diagnostic-match">尚未匹配歌词</output>
+                        <small class="diagnostic-detail diagnostic-match-detail">等待歌词加载</small>
+                    </div>
+                </div>
+                <div class="diagnostics-actions">
+                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-reset">重置状态</button>
+                </div>
                 <div class="log-container">
                     <div class="log-entries"></div>
                 </div>

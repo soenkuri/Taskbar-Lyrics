@@ -8,7 +8,7 @@ plugin.onLoad(async () => {
     const TaskbarLyricsFetch = async (path, params) => {
         const body = JSON.stringify(params ?? {});
         const endpoint = `POST /taskbar${path}`;
-        addLog(`[C++发送] ${endpoint} body=${body}`, "info");
+        addLog(`[C++请求] 发送 ${endpoint}\n  参数：${body}`, "info");
 
         try {
             const response = await fetch(
@@ -21,10 +21,10 @@ plugin.onLoad(async () => {
                     }
                 }
             );
-            addLog(`[C++响应] ${endpoint} status=${response.status}`, response.ok ? "info" : "warn");
+            addLog(`[C++响应] ${endpoint} 返回 ${response.status}`, response.ok ? "info" : "warn");
             return response;
         } catch (error) {
-            addLog(`[C++请求失败] ${endpoint} body=${body} error=${error?.message ?? error}`, "error");
+            addLog(`[C++请求] ${endpoint} 失败\n  参数：${body}\n  原因：${error?.message ?? error}`, "error");
             throw error;
         }
     };

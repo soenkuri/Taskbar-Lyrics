@@ -193,6 +193,58 @@ body.s-theme-white #taskbar-lyrics-dom .content input.switch-btn:checked {
 
 
 /* 日志查看器 */
+#taskbar-lyrics-dom .diagnostics-grid {
+    display: grid !important;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+    margin: 5px 0 10px;
+}
+
+#taskbar-lyrics-dom .diagnostic-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-height: 66px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+#taskbar-lyrics-dom .diagnostic-card-wide {
+    grid-column: 1 / -1;
+}
+
+#taskbar-lyrics-dom .diagnostic-label {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+#taskbar-lyrics-dom .diagnostic-value {
+    max-width: 100%;
+    font-size: 14px;
+    font-weight: bold;
+    word-break: break-word;
+}
+
+#taskbar-lyrics-dom .diagnostic-detail {
+    max-width: 100%;
+    font-size: 11px;
+    opacity: 0.65;
+    word-break: break-word;
+}
+
+#taskbar-lyrics-dom .diagnostics-actions {
+    justify-content: flex-end;
+    min-height: 24px;
+}
+
+body.s-theme-white #taskbar-lyrics-dom .diagnostic-card {
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.05);
+}
+
 #taskbar-lyrics-dom .log-container {
     background: rgba(0, 0, 0, 0.3);
     border-radius: 6px;

@@ -20,9 +20,73 @@ plugin.onLoad(async () => {
     let lineEndTimer = null;
     let lineEndTimerIndex = null;
     let hideDebounceTimer = null;
+    let listenerRegistered = false;
+    let listenerRegistrationPending = false;
+    let registeredRetrievalMethod = null;
+    let listenerRegistrationToken = 0;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
+    const updateDebug = (method, payload) => window.TaskbarLyricsDebug?.[method]?.(payload);
+
+
+    const retrievalMethodName = value => ({
+        0: "软件内词栏",
+        1: "LibLyric",
+        2: "RefinedNowPlaying"
+    }[Number(value)] ?? `未知方式(${value})`);
+
+
+    const formatSeconds = value => {
+        const number = Number(value);
+        return Number.isFinite(number) ? `${number.toFixed(2)}秒` : "无效进度";
+    };
+
+
+    const shortenLyric = value => {
+        const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+        if (!text) return "（间奏或空白）";
+        return text.length > 80 ? `${text.slice(0, 80)}…` : `“${text}”`;
+    };
+
+
+    const reportLyricMatch = ({
+        progress,
+        adjustedProgress,
+        nextIndex,
+        currentLyric,
+        detail
+    }) => {
+        const lineIndex = nextIndex - 1;
+        const text = currentLyric?.originalLyric ?? "";
+        const matchText = lineIndex < 0 ? "歌曲开头（暂无歌词）" : shortenLyric(text);
+        updateDebug("updateLyricMatch", {
+            progress,
+            adjustedProgress,
+            lineIndex: lineIndex < 0 ? null : lineIndex,
+            text: matchText,
+            detail
+        });
+        addLog(
+            `[歌词匹配] 根据 ${formatSeconds(progress)}（校准后 ${formatSeconds(adjustedProgress)}）匹配到${lineIndex < 0 ? "歌曲开头" : `第 ${lineIndex + 1} 行`}：${matchText}${detail ? `（${detail}）` : ""}`,
+            "info"
+        );
+    };
+
+
+    const reportListener = ({ status, method, events = [], detail }) => {
+        updateDebug("updateListener", { status, method, events, detail });
+        const eventText = events.length ? events.join("、") : "MutationObserver";
+        const level = status === "注册失败" ? "error" : status === "已注册" ? "success" : "info";
+        const action = {
+            "已注册": "已注册",
+            "已注销": "已注销",
+            "注销中": "正在注销",
+            "注册中": "正在注册",
+            "注册失败": "注册失败"
+        }[status] ?? status;
+        addLog(`[歌词监听] ${action} ${method}：${eventText}${detail ? `（${detail}）` : ""}`, level);
+    };
 
 
     const sendLyrics = (lyrics, { isSongInfo = false, isRealLyric = false } = {}) => {
@@ -109,7 +173,7 @@ plugin.onLoad(async () => {
                 return this.base.taskbarLyricsDataPath;
             } catch (error) {
                 lastError = error;
-                addLog(`读取数据目录失败 (${attempt}/3)：${error?.message ?? error}`, "warn");
+                addLog(`[重连] 读取数据目录失败（${attempt}/3）：${error?.message ?? error}`, "warn");
                 await wait(250 * attempt);
             }
         }
@@ -126,12 +190,12 @@ plugin.onLoad(async () => {
 
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
-                addLog(`正在启动 C++ 程序 (${attempt}/3)...`, "info");
+                addLog(`[重连] 正在启动 C++ 程序（${attempt}/3）...`, "info");
                 const started = await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
                 if (!started) throw new Error("启动命令返回失败");
             } catch (error) {
                 lastError = error;
-                addLog(`启动命令失败 (${attempt}/3)：${error?.message ?? error}`, "warn");
+                addLog(`[重连] 启动命令失败（${attempt}/3）：${error?.message ?? error}`, "warn");
             }
 
             // 请求可能在返回失败前已执行，仍需探测服务是否已真正恢复
@@ -148,15 +212,15 @@ plugin.onLoad(async () => {
         正在重连 = true;
         try {
             currentIndex = 0;
-            addLog("检测到连接断开，正在重启 C++ 程序...", "error");
+            addLog("[重连] 检测到连接断开，正在重启 C++ 程序...", "error");
             await restartTaskbarLyricsProcess();
 
-            addLog("C++ 服务已就绪，已从 taskbar-lyrics.ini 加载配置", "success");
+            addLog("[重连] C++ 服务已就绪，已从 taskbar-lyrics.ini 加载配置", "success");
             stopGetLyric();
             startGetLyric();
-            addLog("重连完成，已重新加载当前歌曲", "success");
+            addLog("[重连] 重连完成，已重新加载当前歌曲", "success");
         } catch (error) {
-            addLog(`自动重连失败：${error?.message ?? error}，将继续重试`, "error");
+            addLog(`[重连] 自动重连失败：${error?.message ?? error}，将继续重试`, "error");
         } finally {
             正在重连 = false;
         }
@@ -179,6 +243,7 @@ plugin.onLoad(async () => {
     // 监视软件内歌词变动
     const watchLyricsChange = async () => {
         const mLyric = await betterncm.utils.waitForElement("#x-g-mn .m-lyric");
+        if (observer) observer.disconnect();
         const MutationCallback = mutations => {
             for (const mutation of mutations) {
                 let lyrics = {
@@ -201,6 +266,7 @@ plugin.onLoad(async () => {
 
         observer = new MutationObserver(MutationCallback);
         observer.observe(mLyric, { childList: true, subtree: true });
+        return true;
     }
 
 
@@ -231,6 +297,15 @@ plugin.onLoad(async () => {
         artists.forEach(item => artistName += ` / ${item.name}`);
         artistName = artistName.slice(3);
 
+        addLog(`[歌曲] 开始加载：${name || "未知歌曲"}${artistName ? ` - ${artistName}` : ""}（ID：${musicId}）`, "info");
+        updateDebug("updateLyricMatch", {
+            text: "正在加载歌词",
+            progress: hasCurrentSongProgress ? lastProgressTime : null,
+            adjustedProgress: null,
+            lineIndex: null,
+            detail: "等待歌词解析"
+        });
+
         // 先发送歌曲信息；歌词加载期间不保留上一首的自动隐藏状态
         sendLyrics({
             "basic": name,
@@ -242,6 +317,8 @@ plugin.onLoad(async () => {
 
         // 解析歌词
         const config = pluginConfig.get("lyrics");
+        const retrievalMethod = retrievalMethodName(config["retrieval_method"]["value"]);
+        addLog(`[歌词加载] 来源：${retrievalMethod}`, "info");
         if ((config["retrieval_method"]["value"] == "2") && window.currentLyrics) {
             // 解决RNP歌词对不上的问题
             while (true) {
@@ -265,7 +342,7 @@ plugin.onLoad(async () => {
                 lyricData?.romalrc?.lyric ?? "",
                 useDynamicLyrics ? lyricData.yrc.lyric : ""
             );
-            addLog(`歌词类型：${useDynamicLyrics ? "逐字歌词" : "静态歌词"}`, "info");
+            addLog(`[歌词加载] 类型：${useDynamicLyrics ? "逐字歌词" : "静态歌词"}`, "info");
 
             const interludeMarkers = getInterludeMarkers(lyricText);
             parsedLyric = [
@@ -273,7 +350,7 @@ plugin.onLoad(async () => {
                 ...interludeMarkers
             ].sort((left, right) => left.time - right.time);
             if (interludeMarkers.length) {
-                addLog(`识别到 ${interludeMarkers.length} 个 LRC 间奏标记`, "info");
+                addLog(`[歌词加载] 识别到 ${interludeMarkers.length} 个 LRC 间奏标记`, "info");
             }
         }
 
@@ -291,9 +368,18 @@ plugin.onLoad(async () => {
             parsedLyric = null;
             currentIndex = 0;
             interludeSent = false;
-            addLog(`有效歌词仅 ${effectiveLyricLines.length} 行，不发送歌词`, "info");
+            updateDebug("updateLyricMatch", {
+                text: "无可用歌词",
+                progress: hasCurrentSongProgress ? lastProgressTime : null,
+                adjustedProgress: null,
+                lineIndex: null,
+                detail: `有效歌词 ${effectiveLyricLines.length} 行，小于 5 行阈值`
+            });
+            addLog(`[歌词加载] 有效歌词仅 ${effectiveLyricLines.length} 行，不发送歌词`, "info");
             return;
         }
+
+        addLog(`[歌词加载] 解析完成：有效歌词 ${effectiveLyricLines.length} 行`, "success");
 
         // 纯音乐只显示歌曲名与作曲家
         if (
@@ -320,7 +406,9 @@ plugin.onLoad(async () => {
         if (!parsedLyric) return;
 
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
-        let nextIndex = parsedLyric.findIndex(item => item.time > (time + adjust) * 1000);
+        const progress = Number(time);
+        const adjustedProgress = progress + (Number.isFinite(adjust) ? adjust : 0);
+        let nextIndex = parsedLyric.findIndex(item => item.time > adjustedProgress * 1000);
         nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
         // 间奏中（还没到下一句）或暂停中（非强制补发）不重新发送歌词
@@ -334,11 +422,25 @@ plugin.onLoad(async () => {
             const isRealLyric = Boolean(currentLyric?.originalLyric?.trim());
             const isInterludeMarker = currentLyric?.isInterludeMarker === true;
             if (!isRealLyric && !hasDisplayedRealLyric) {
+                reportLyricMatch({
+                    progress,
+                    adjustedProgress,
+                    nextIndex,
+                    currentLyric,
+                    detail: "歌曲信息保护，未发送空歌词"
+                });
                 currentIndex = nextIndex;
                 interludeSent = false;
                 return;
             }
             if (isInterludeMarker && interludeSent) {
+                reportLyricMatch({
+                    progress,
+                    adjustedProgress,
+                    nextIndex,
+                    currentLyric,
+                    detail: "间奏已处理，跳过重复发送"
+                });
                 currentIndex = nextIndex;
                 return;
             }
@@ -350,6 +452,13 @@ plugin.onLoad(async () => {
                     !hideConfig["enabled"]
                     || duration < (Number.isFinite(minimumGap) ? minimumGap : 400)
                 ) {
+                    reportLyricMatch({
+                        progress,
+                        adjustedProgress,
+                        nextIndex,
+                        currentLyric,
+                        detail: "间奏未达到隐藏条件，保持上一句"
+                    });
                     currentIndex = nextIndex;
                     interludeSent = false;
                     return;
@@ -361,9 +470,16 @@ plugin.onLoad(async () => {
                 "extra": currentLyric?.translatedLyric ?? ""
             };
             sendLyrics(lyrics, { isRealLyric });
+            reportLyricMatch({
+                progress,
+                adjustedProgress,
+                nextIndex,
+                currentLyric,
+                detail: isInterludeMarker ? "间奏空歌词已发送" : "真实歌词已发送"
+            });
             currentIndex = nextIndex;
             interludeSent = isInterludeMarker;
-            if (isInterludeMarker) addLog("检测到 LRC 间奏，发送空歌词", "info");
+            if (isInterludeMarker) addLog("[歌词隐藏] 检测到 LRC 间奏，发送空歌词", "info");
         }
     }
 
@@ -413,7 +529,7 @@ plugin.onLoad(async () => {
             ) return;
 
             interludeSent = true;
-            addLog("当前歌词播放完成，发送空歌词", "info");
+            addLog("[歌词隐藏] 当前歌词播放完成，发送空歌词", "info");
             sendLyrics({ "basic": "", "extra": "" });
         };
 
@@ -443,15 +559,16 @@ plugin.onLoad(async () => {
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
-        const adjustedTime = Number(time) + (Number.isFinite(adjust) ? adjust : 0);
-        addLog(
-            `[播放进度] 获取到=${JSON.stringify(time)}秒，校准后=${Number.isFinite(adjustedTime) ? adjustedTime : "无效"}秒`,
-            "info"
-        );
-        lastProgressTime = time;
+        const numericTime = Number(time);
+        const adjustedTime = numericTime + (Number.isFinite(adjust) ? adjust : 0);
+        updateDebug("updatePlaybackProgress", {
+            rawTime: numericTime,
+            adjustedTime
+        });
+        lastProgressTime = numericTime;
         hasCurrentSongProgress = true;
-        sendCurrentLyric(time, false);
-        scheduleLineEndHide(time);
+        sendCurrentLyric(numericTime, false);
+        scheduleLineEndHide(numericTime);
     }
 
 
@@ -477,7 +594,7 @@ plugin.onLoad(async () => {
 
         // 无法识别的状态格式，记日志方便排查
         if (playing === undefined || playing === null) {
-            addLog(`[调试] PlayState 未知格式: ${JSON.stringify(state)}`, "warn");
+            addLog(`[播放状态] 无法识别 PlayState：${JSON.stringify(state)}`, "warn");
             return;
         }
 
@@ -490,7 +607,7 @@ plugin.onLoad(async () => {
             if (isPaused) {
                 isPaused = false;
                 if (hasCurrentSongProgress) {
-                    addLog("恢复播放，立即补发当前歌词", "info");
+                    addLog("[播放状态] 恢复播放，立即补发当前歌词", "info");
                     sendCurrentLyric(lastProgressTime, true);
                 }
             }
@@ -507,7 +624,7 @@ plugin.onLoad(async () => {
                 isPaused = true;
                 interludeSent = false;
                 if (!hasCurrentSongProgress || !hasDisplayedRealLyric) return;
-                addLog("暂停播放，发送空歌词", "info");
+                addLog("[播放状态] 暂停播放，发送空歌词", "info");
                 sendLyrics({ "basic": "", "extra": "" });
             }, 500);
         }
@@ -518,10 +635,55 @@ plugin.onLoad(async () => {
     // 开始获取歌词
     function startGetLyric() {
         const config = pluginConfig.get("lyrics");
-        switch (config["retrieval_method"]["value"]) {
+        const retrievalMethod = config["retrieval_method"]["value"];
+        const methodName = retrievalMethodName(retrievalMethod);
+        const nativeEvents = ["Load", "PlayProgress", "PlayState"];
+        if (listenerRegistered || listenerRegistrationPending || registeredRetrievalMethod !== null) {
+            addLog(`[歌词监听] ${methodName} 已存在活动监听，跳过重复注册`, "warn");
+            return;
+        }
+
+        const registrationToken = ++listenerRegistrationToken;
+        listenerRegistrationPending = true;
+        reportListener({
+            status: "注册中",
+            method: methodName,
+            events: retrievalMethod === 0 ? [] : nativeEvents,
+            detail: "等待监听就绪"
+        });
+
+        switch (retrievalMethod) {
             // 软件内词栏
             case 0: {
-                watchLyricsChange();
+                watchLyricsChange()
+                    .then(() => {
+                        if (registrationToken !== listenerRegistrationToken) {
+                            if (observer) {
+                                observer.disconnect();
+                                observer = null;
+                            }
+                            return;
+                        }
+                        listenerRegistrationPending = false;
+                        listenerRegistered = true;
+                        registeredRetrievalMethod = methodName;
+                        reportListener({
+                            status: "已注册",
+                            method: methodName,
+                            events: [],
+                            detail: "MutationObserver 已开始监听词栏变化"
+                        });
+                    })
+                    .catch(error => {
+                        if (registrationToken !== listenerRegistrationToken) return;
+                        listenerRegistrationPending = false;
+                        reportListener({
+                            status: "注册失败",
+                            method: methodName,
+                            events: [],
+                            detail: error?.message ?? error
+                        });
+                    });
             } break;
 
             // LibLyric
@@ -529,6 +691,15 @@ plugin.onLoad(async () => {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
                 legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
+                listenerRegistrationPending = false;
+                listenerRegistered = true;
+                registeredRetrievalMethod = methodName;
+                reportListener({
+                    status: "已注册",
+                    method: methodName,
+                    events: nativeEvents,
+                    detail: "audioplayer"
+                });
                 const playingSong = betterncm.ncm.getPlayingSong();
                 if (playingSong && playingSong.data.id != musicId) {
                     play_load();
@@ -540,6 +711,25 @@ plugin.onLoad(async () => {
                 legacyNativeCmder.appendRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.appendRegisterCall("PlayProgress", "audioplayer", play_progress);
                 legacyNativeCmder.appendRegisterCall("PlayState", "audioplayer", play_state);
+                listenerRegistrationPending = false;
+                listenerRegistered = true;
+                registeredRetrievalMethod = methodName;
+                reportListener({
+                    status: "已注册",
+                    method: methodName,
+                    events: nativeEvents,
+                    detail: "audioplayer"
+                });
+            } break;
+
+            default: {
+                listenerRegistrationPending = false;
+                reportListener({
+                    status: "注册失败",
+                    method: methodName,
+                    events: [],
+                    detail: "未知歌词获取方式"
+                });
             } break;
         }
     }
@@ -547,6 +737,7 @@ plugin.onLoad(async () => {
 
     // 停止获取歌词
     function stopGetLyric() {
+        ++listenerRegistrationToken;
         lyricLoadVersion++;
         if (pauseDebounceTimer) {
             clearTimeout(pauseDebounceTimer);
@@ -560,9 +751,23 @@ plugin.onLoad(async () => {
         isPaused = false;
         interludeSent = false;
         const config = pluginConfig.get("lyrics");
-        switch (config["retrieval_method"]["value"]) {
+        const currentMethod = registeredRetrievalMethod ?? retrievalMethodName(config["retrieval_method"]["value"]);
+        const nativeEvents = ["Load", "PlayProgress", "PlayState"];
+        const hasObserver = Boolean(observer);
+        const hadListener = listenerRegistered || listenerRegistrationPending || registeredRetrievalMethod !== null || hasObserver;
+
+        if (hadListener) {
+            reportListener({
+                status: "注销中",
+                method: currentMethod,
+                events: currentMethod === "软件内词栏" ? [] : nativeEvents,
+                detail: "正在移除监听"
+            });
+        }
+
+        switch (currentMethod) {
             // 软件内词栏
-            case 0: {
+            case "软件内词栏": {
                 if (observer) {
                     observer.disconnect();
                     observer = null;
@@ -570,19 +775,29 @@ plugin.onLoad(async () => {
             } break;
 
             // LibLyric
-            case 1: {
+            case "LibLyric": {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
                 legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
 
             // RefinedNowPlaying
-            case 2: {
+            case "RefinedNowPlaying": {
                 legacyNativeCmder.removeRegisterCall("Load", "audioplayer", play_load);
                 legacyNativeCmder.removeRegisterCall("PlayProgress", "audioplayer", play_progress);
                 legacyNativeCmder.removeRegisterCall("PlayState", "audioplayer", play_state);
             } break;
         }
+
+        listenerRegistrationPending = false;
+        listenerRegistered = false;
+        registeredRetrievalMethod = null;
+        reportListener({
+            status: "已注销",
+            method: currentMethod,
+            events: currentMethod === "软件内词栏" ? [] : nativeEvents,
+            detail: hadListener ? "监听已移除" : "当前没有活动监听"
+        });
     }
 
 

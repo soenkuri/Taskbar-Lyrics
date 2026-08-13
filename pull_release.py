@@ -24,6 +24,29 @@ def find_github_cli():
     raise RuntimeError("找不到 GitHub CLI，请确认 gh.exe 已安装")
 
 
+def format_bytes(value):
+    units = ["B", "KB", "MB", "GB"]
+    size = float(value)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def print_download_progress(downloaded, total):
+    width = 30
+    ratio = min(max(downloaded / total, 0), 1) if total > 0 else 0
+    filled = int(width * ratio)
+    bar = "#" * filled + "-" * (width - filled)
+    percent = ratio * 100 if total > 0 else 0
+    print(
+        f"\r下载进度 [{bar}] {percent:6.2f}% "
+        f"({format_bytes(downloaded)} / {format_bytes(total)})",
+        end="",
+        flush=True,
+    )
+
+
 def download_latest_plugin():
     """下载仓库最新（包含预发布）release 中的 plugin 资产。"""
     github_cli = find_github_cli()
@@ -58,7 +81,47 @@ def download_latest_plugin():
     except (ValueError, IndexError, KeyError, TypeError) as error:
         raise RuntimeError("仓库没有可下载的 release") from error
 
-    download_result = subprocess.run(
+    asset_result = subprocess.run(
+        [
+            github_cli,
+            "release",
+            "view",
+            tag_name,
+            "--repo",
+            REPOSITORY,
+            "--json",
+            "assets",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if asset_result.returncode != 0:
+        raise RuntimeError(
+            f"读取 release {tag_name} 资产失败: {asset_result.stderr.strip()}"
+        )
+
+    try:
+        assets = json.loads(asset_result.stdout).get("assets", [])
+        plugin_assets = [
+            asset for asset in assets
+            if str(asset.get("name", "")).lower().endswith(".plugin")
+        ]
+        if len(plugin_assets) != 1:
+            raise RuntimeError(
+                f"release {tag_name} 中找到 {len(plugin_assets)} 个 plugin 资产，无法确定下载目标"
+            )
+        plugin_asset = plugin_assets[0]
+        asset_name = plugin_asset["name"]
+        asset_size = int(plugin_asset["size"])
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        raise RuntimeError(f"无法解析 release {tag_name} 的 plugin 资产信息") from error
+
+    print(f"正在下载最新 release {tag_name}：{asset_name}")
+    if os.path.isfile(SOURCE):
+        os.remove(SOURCE)
+    download_process = subprocess.Popen(
         [
             github_cli,
             "release",
@@ -67,19 +130,30 @@ def download_latest_plugin():
             "--repo",
             REPOSITORY,
             "--pattern",
-            "*.plugin",
+            asset_name,
             "--output",
             SOURCE,
             "--clobber",
         ],
-        capture_output=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
-    if download_result.returncode != 0:
+
+    while download_process.poll() is None:
+        downloaded_size = os.path.getsize(SOURCE) if os.path.isfile(SOURCE) else 0
+        print_download_progress(downloaded_size, asset_size)
+        time.sleep(0.1)
+
+    stderr = download_process.communicate()[1].strip()
+    downloaded_size = os.path.getsize(SOURCE) if os.path.isfile(SOURCE) else 0
+    print_download_progress(downloaded_size, asset_size)
+    print()
+    if download_process.returncode != 0:
         raise RuntimeError(
-            f"下载 release {tag_name} 失败: {download_result.stderr.strip()}"
+            f"下载 release {tag_name} 失败: {stderr}"
         )
     if not os.path.isfile(SOURCE):
         raise RuntimeError(f"下载完成但找不到 plugin 文件: {SOURCE}")
