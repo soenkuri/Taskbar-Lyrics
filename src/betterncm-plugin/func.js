@@ -12,8 +12,7 @@ plugin.onLoad(async () => {
     const {
         startGetLyric,
         stopGetLyric,
-        waitForTaskbarLyricsProcessStopped,
-        waitForTaskbarLyricsProcessRunning
+        startTaskbarLyricsProcess
     } = { ...this.lyric };
 
 
@@ -24,25 +23,13 @@ plugin.onLoad(async () => {
     const TaskbarLyricsStart = () => {
         const operation = async () => {
             addLog("[生命周期] 正在启动 C++ 程序...", "info");
-            // 这BetterNCM获取的路径是不标准的会出问题，要替换掉下面那俩字符
-            const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
-            this.base.taskbarLyricsDataPath = dataPath;
-            const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
-            const taskkill = `taskkill /F /IM "taskbar-lyrics.exe"`;
-            const xcopy = `xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}"`;
-            const exec = `"${dataPath}\\taskbar-lyrics.exe" ${TaskbarLyricsPort}`;
-            await betterncm.app.exec(`cmd /S /C ${taskkill} >nul 2>&1`, false, false);
-            if (typeof waitForTaskbarLyricsProcessStopped === "function"
-                && !(await waitForTaskbarLyricsProcessStopped())) {
-                throw new Error("旧 C++ 程序未退出，已取消启动");
-            }
-            await betterncm.app.exec(`cmd /S /C ${xcopy} && ${exec}`, false, false);
-            if (typeof waitForTaskbarLyricsProcessRunning === "function"
-                && !(await waitForTaskbarLyricsProcessRunning())) {
-                addLog("[生命周期] 未在实际进程列表中确认 C++ 程序，继续等待歌词回执", "warn");
-            }
-            this.base.taskbarLyricsStartingUntil = Date.now() + 5000;
-            addLog("[生命周期] C++ 程序已启动，端口：" + TaskbarLyricsPort, "success");
+            const startupStatus = await startTaskbarLyricsProcess();
+            const replaced = startupStatus?.replaced_instance === true
+                || startupStatus?.startup_mode === "replaced";
+            addLog(
+                `[生命周期] C++ ${replaced ? "已替换旧实例" : "正常启动"}，端口：${TaskbarLyricsPort}`,
+                replaced ? "warn" : "success"
+            );
             addLog("[配置] C++ 将从 taskbar-lyrics.ini 加载配置", "info");
             startGetLyric();
         };

@@ -55,6 +55,7 @@ const diagnosticsState = {
         status: "未检测",
         statusCode: null,
         latencyMs: null,
+        cumulativeDelayMs: 0,
         detail: "等待 C++ 歌词回执",
         currentLyric: null,
         lastAt: null,
@@ -230,10 +231,12 @@ const renderDiagnostics = () => {
             ? `上次 ${lyricAck.lastClock} · ${formatElapsed(lyricAck.lastAt)}`
             : "无回执";
         const statusCode = lyricAck.statusCode ? `HTTP ${lyricAck.statusCode}` : "";
+        const cumulative = `累计 ${formatDiagnosticMilliseconds(lyricAck.cumulativeDelayMs)}`;
         diagnosticLyricAckDetailEl.textContent = [
             lyricAck.status,
             lastAck,
             statusCode,
+            cumulative,
             lyricAck.status === "正常" || lyricAck.status === "已忽略"
                 ? ""
                 : lyricAck.detail
@@ -305,6 +308,8 @@ window.TaskbarLyricsDebug = {
             : null;
         const latencyMs = toFiniteNumber(payload?.latencyMs);
         if (latencyMs !== null) diagnosticsState.lyricAck.latencyMs = latencyMs;
+        const cumulativeDelayMs = toFiniteNumber(payload?.cumulativeDelayMs);
+        if (cumulativeDelayMs !== null) diagnosticsState.lyricAck.cumulativeDelayMs = cumulativeDelayMs;
         diagnosticsState.lyricAck.detail = payload?.detail ?? "";
         diagnosticsState.lyricAck.currentLyric = payload?.currentLyric
             && typeof payload.currentLyric === "object"
@@ -365,6 +370,7 @@ window.TaskbarLyricsDebug = {
             status: "未检测",
             statusCode: null,
             latencyMs: null,
+            cumulativeDelayMs: 0,
             detail: "等待 C++ 歌词回执",
             currentLyric: null,
             lastAt: null,

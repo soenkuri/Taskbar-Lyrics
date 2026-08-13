@@ -67,7 +67,10 @@ plugin.onLoad(async () => {
         animation: params => TaskbarLyricsFetch("/animation", params),
 
         // 关闭
-        close: params => TaskbarLyricsFetch("/close", params)
+        close: params => TaskbarLyricsFetch("/close", params),
+
+        // 启动状态：由 C++ 报告本次是正常启动还是替换旧实例
+        status: params => TaskbarLyricsFetch("/status", params)
     };
 
 
@@ -304,7 +307,6 @@ plugin.onLoad(async () => {
         defaultConfig,
         pluginConfig,
         queueTaskbarLyricsProcessOperation,
-        taskbarLyricsProcessOperation: null,
-        taskbarLyricsStartingUntil: 0
+        taskbarLyricsProcessOperation: null
     };
 });

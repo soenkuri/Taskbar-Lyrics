@@ -15,6 +15,9 @@ class 网络服务器类
 	std::thread* 网络服务器_线程 = nullptr;
 	std::wstring 配置文件路径;
 	std::mutex 配置互斥;
+	bool 替换已有实例 = false;
+	unsigned long long 启动时间 = 0;
+	std::wstring 启动标识;
 
 
 	private:
@@ -22,7 +25,7 @@ class 网络服务器类
 
 
 	public:
-	网络服务器类(class 任务栏窗口类*, unsigned short);
+	网络服务器类(class 任务栏窗口类*, unsigned short, bool, const std::wstring&);
 	~网络服务器类();
 
 
@@ -37,6 +40,7 @@ class 网络服务器类
 	void 屏幕(const httplib::Request&, httplib::Response&);
 	void 过渡动画(const httplib::Request&, httplib::Response&);
 	void 关闭(const httplib::Request&, httplib::Response&);
+	void 状态(const httplib::Request&, httplib::Response&);
 
 	void 初始化配置路径();
 	void 保存配置();

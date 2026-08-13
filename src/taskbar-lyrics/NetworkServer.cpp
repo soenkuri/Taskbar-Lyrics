@@ -100,6 +100,17 @@ void 写入布尔值(
 }
 
 
+unsigned long long 获取Unix毫秒()
+{
+    FILETIME 文件时间 = {};
+    GetSystemTimeAsFileTime(&文件时间);
+    ULARGE_INTEGER 数值 = {};
+    数值.LowPart = 文件时间.dwLowDateTime;
+    数值.HighPart = 文件时间.dwHighDateTime;
+    return 数值.QuadPart / 10000ULL - 11644473600000ULL;
+}
+
+
 D2D1::ColorF 读取颜色(
     const std::wstring& 文件路径,
     const wchar_t* 节,
@@ -129,9 +140,14 @@ void 写入颜色(
 
 网络服务器类::网络服务器类(
     任务栏窗口类* 任务栏窗口,
-    unsigned short 端口
+    unsigned short 端口,
+    bool 替换已有实例,
+    const std::wstring& 启动标识
 ) {
     this->任务栏窗口 = 任务栏窗口;
+    this->替换已有实例 = 替换已有实例;
+    this->启动时间 = 获取Unix毫秒();
+    this->启动标识 = 启动标识;
     this->初始化配置路径();
     this->加载配置();
     this->保存配置();
@@ -152,10 +168,28 @@ void 写入颜色(
         this->网络服务器.Post("/taskbar/window/screen", handler(&网络服务器类::屏幕));
         this->网络服务器.Post("/taskbar/animation", handler(&网络服务器类::过渡动画));
         this->网络服务器.Post("/taskbar/close", handler(&网络服务器类::关闭));
+        this->网络服务器.Post("/taskbar/status", handler(&网络服务器类::状态));
         this->网络服务器.listen("127.0.0.1", 端口);
     };
 
     this->网络服务器_线程 = new std::thread(线程函数);
+}
+
+
+void 网络服务器类::状态(
+    const httplib::Request& req,
+    httplib::Response& res
+) {
+    UNREFERENCED_PARAMETER(req);
+    nlohmann::json 状态信息 = {
+        {"startup_mode", this->替换已有实例 ? "replaced" : "normal"},
+        {"replaced_instance", this->替换已有实例},
+        {"pid", GetCurrentProcessId()},
+        {"started_at", this->启动时间},
+        {"startup_token", this->字符转换.to_bytes(this->启动标识)}
+    };
+    res.set_content(状态信息.dump(), "application/json; charset=UTF-8");
+    res.status = 200;
 }
 
 

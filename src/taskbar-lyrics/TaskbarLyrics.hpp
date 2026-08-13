@@ -13,8 +13,10 @@ class 任务栏歌词类
 
 
     private:
-    HANDLE 等待句柄;
+    HANDLE 等待句柄 = nullptr;
     unsigned short 端口 = 3798;
+    bool 替换已有实例 = false;
+    std::wstring 启动标识;
 
 
     public:
@@ -25,4 +27,5 @@ class 任务栏歌词类
     private:
     void 网易云进程检测();
     void 获取端口();
+    bool 清理已有实例();
 };
