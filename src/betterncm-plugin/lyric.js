@@ -171,6 +171,43 @@ plugin.onLoad(async () => {
     };
 
 
+    // 通过 Windows 实际进程列表判断 taskbar-lyrics.exe 是否仍在后台运行。
+    // app.exec 返回的是命令请求状态，不是命令退出码，因此将 tasklist 输出到临时文件后读取解析。
+    const isTaskbarLyricsProcessRunning = async () => {
+        const dataPath = await getTaskbarLyricsDataPath();
+        const snapshotPath = `${dataPath}\\taskbar-lyrics-process-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`;
+        try {
+            const requested = await betterncm.app.exec(
+                `cmd /S /C tasklist /FI "IMAGENAME eq taskbar-lyrics.exe" /FO CSV /NH > "${snapshotPath}"`,
+                false,
+                false
+            );
+            if (!requested) return true;
+
+            let snapshot = null;
+            for (let attempt = 1; attempt <= 10; attempt++) {
+                try {
+                    snapshot = await betterncm.fs.readFileText(snapshotPath);
+                    break;
+                } catch {
+                    await wait(100);
+                }
+            }
+            if (snapshot === null) return true;
+            return /taskbar-lyrics\.exe/i.test(snapshot);
+        } catch {
+            // 查询命令或文件读取失败时按仍在运行处理，避免误启动第二个进程。
+            return true;
+        } finally {
+            try {
+                await betterncm.fs.remove(snapshotPath);
+            } catch {
+                // 临时快照清理失败不影响进程状态判断。
+            }
+        }
+    };
+
+
     const restartTaskbarLyricsProcess = async () => {
         const dataPath = await getTaskbarLyricsDataPath();
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
@@ -189,19 +226,14 @@ plugin.onLoad(async () => {
                     addLog(`[重连] 结束旧 C++ 程序命令返回异常：${error?.message ?? error}`, "warn");
                 }
 
-                // 不能直接用 ping 判断“已恢复”，先确认旧服务确实已经退出。
+                // 查询实际进程列表，确认旧进程确实已经退出。
                 let oldProcessStopped = false;
                 for (let check = 1; check <= 12; check++) {
-                    try {
-                        const response = await TaskbarLyricsAPI.ping({});
-                        if (!response.ok) {
-                            oldProcessStopped = true;
-                            break;
-                        }
-                    } catch {
+                    if (!(await isTaskbarLyricsProcessRunning())) {
                         oldProcessStopped = true;
                         break;
                     }
+                    addLog(`[重连] 旧 C++ 进程仍在运行，等待退出（${check}/12）`, "warn");
                     await wait(250);
                 }
                 if (!oldProcessStopped) {
