@@ -228,6 +228,10 @@ plugin.onLoad(async () => {
             "is_real_lyric": isRealLyric
         };
         const requestStartedAt = getMonotonicTime();
+        const startingUntil = Number(this.base.taskbarLyricsStartingUntil);
+        const ackTimeout = Number.isFinite(startingUntil) && startingUntil > Date.now()
+            ? Math.max(LYRIC_ACK_TIMEOUT, startingUntil - Date.now())
+            : LYRIC_ACK_TIMEOUT;
 
         // 歌词可能在几十毫秒内连续切换。每条请求都保留回执窗口，收到任意
         // 更新后的有效回执即可证明 C++ 仍然工作；这样短歌词不会阻塞下一条，
@@ -239,6 +243,7 @@ plugin.onLoad(async () => {
             timeoutId: null,
             timedOut: false,
             responseLatencyMs: null,
+            ackTimeout,
             superseded: false
         };
         pendingLyricAcks.set(pending.requestId, pending);
@@ -270,17 +275,17 @@ plugin.onLoad(async () => {
                     pending.timeoutId = setTimeout(
                         () => {
                             pending.timedOut = true;
-                            reject(new Error(`歌词回执超时（${LYRIC_ACK_TIMEOUT}ms）`));
+                            reject(new Error(`歌词回执超时（${ackTimeout}ms）`));
                         },
-                        LYRIC_ACK_TIMEOUT
+                        ackTimeout
                     );
                 })
             ]);
             if (!isCurrentGeneration()) return response;
             const responseLatencyMs = Math.max(0, getMonotonicTime() - requestStartedAt);
             pending.responseLatencyMs = responseLatencyMs;
-            if (responseLatencyMs > LYRIC_ACK_TIMEOUT && isLatestRequest()) {
-                const detail = `歌词回执耗时 ${Math.round(responseLatencyMs)}ms，超过 ${LYRIC_ACK_TIMEOUT}ms`;
+            if (responseLatencyMs > ackTimeout && isLatestRequest()) {
+                const detail = `歌词回执耗时 ${Math.round(responseLatencyMs)}ms，超过 ${ackTimeout}ms`;
                 updateDebug("updateLyricAck", {
                     status: "超时",
                     statusCode: Number.isInteger(response?.status) ? response.status : null,
@@ -291,6 +296,9 @@ plugin.onLoad(async () => {
                 addLog(`[C++歌词回执] ${detail}，立即重启 C++ 程序`, "error");
                 void reconnect();
                 return null;
+            }
+            if (this.base.taskbarLyricsStartingUntil && response?.status >= 200 && response?.status < 300) {
+                this.base.taskbarLyricsStartingUntil = 0;
             }
             if (response?.status === 204 && !isSongInfo && !isRealLyric) {
                 markAcknowledged();
@@ -345,6 +353,12 @@ plugin.onLoad(async () => {
             if (!isLatestRequest() && !pending.timedOut) return null;
             if (lastLyricAckRequestId >= pending.requestId) return null;
             const detail = error?.message ?? String(error);
+            const startupGraceActive = Number(this.base.taskbarLyricsStartingUntil) > Date.now();
+            const isSimulatedFailure = detail.includes("调试：模拟");
+            if (startupGraceActive && !pending.timedOut && !isSimulatedFailure) {
+                addLog(`[C++歌词回执] ${detail}，C++ 仍在启动，等待后续歌词请求`, "warn");
+                return null;
+            }
             const elapsedMs = Math.max(0, getMonotonicTime() - requestStartedAt);
             updateDebug("updateLyricAck", {
                 status: pending.timedOut ? "超时" : "异常",
@@ -475,6 +489,15 @@ plugin.onLoad(async () => {
     };
 
 
+    const waitForTaskbarLyricsProcessRunning = async () => {
+        for (let check = 1; check <= 20; check++) {
+            if (await isTaskbarLyricsProcessRunning()) return true;
+            await wait(250);
+        }
+        return false;
+    };
+
+
     const restartTaskbarLyricsProcess = async () => {
         const dataPath = await getTaskbarLyricsDataPath();
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
@@ -508,7 +531,12 @@ plugin.onLoad(async () => {
                 if (!started) {
                     addLog("[重连] 启动命令未确认执行，将由歌词回执确认服务状态", "warn");
                 }
-                // 不等待额外探测；下一次歌词请求必须在超时前收到 C++ 回执。
+                if (!(await waitForTaskbarLyricsProcessRunning())) {
+                    throw new Error("C++ 进程未出现在实际进程列表");
+                }
+                // 启动命令返回不代表 HTTP 服务已经就绪；给首次回执一个启动窗口，
+                // 避免启动阶段的正常竞态再次触发重启并创建第二个进程。
+                this.base.taskbarLyricsStartingUntil = Date.now() + 5000;
                 return;
             } catch (error) {
                 lastError = error;
@@ -529,9 +557,14 @@ plugin.onLoad(async () => {
             addLog("[重连] 检测到连接断开，正在重启 C++ 程序...", "error");
             // 先注销监听，避免旧回调在新进程启动期间继续发送过期歌词。
             stopGetLyric();
-            await restartTaskbarLyricsProcess();
+            const queue = this.base.queueTaskbarLyricsProcessOperation;
+            if (typeof queue === "function") {
+                await queue(() => restartTaskbarLyricsProcess());
+            } else {
+                await restartTaskbarLyricsProcess();
+            }
 
-            addLog("[重连] C++ 服务已就绪，已从 taskbar-lyrics.ini 加载配置", "success");
+            addLog("[重连] C++ 程序已启动，等待回执确认服务状态", "success");
             startGetLyric();
             addLog("[重连] 重连完成，已重新加载当前歌曲", "success");
         } catch (error) {
@@ -1161,6 +1194,8 @@ plugin.onLoad(async () => {
 
     this.lyric = {
         startGetLyric,
-        stopGetLyric
+        stopGetLyric,
+        waitForTaskbarLyricsProcessStopped,
+        waitForTaskbarLyricsProcessRunning
     }
 });

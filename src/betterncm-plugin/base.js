@@ -281,11 +281,30 @@ plugin.onLoad(async () => {
     };
 
 
+    // 启动、重启和设置页重新开启可能来自不同插件脚本；统一排队，
+    // 避免两个命令同时启动 taskbar-lyrics.exe。
+    const queueTaskbarLyricsProcessOperation = operation => {
+        const previous = this.base?.taskbarLyricsProcessOperation ?? Promise.resolve();
+        const current = previous.catch(() => {}).then(operation);
+        this.base.taskbarLyricsProcessOperation = current;
+        const clearOperation = () => {
+            if (this.base.taskbarLyricsProcessOperation === current) {
+                this.base.taskbarLyricsProcessOperation = null;
+            }
+        };
+        current.then(clearOperation, clearOperation);
+        return current;
+    };
+
+
     this.base = {
         TaskbarLyricsPort,
         TaskbarLyricsAPI,
         WindowsEnum,
         defaultConfig,
-        pluginConfig
+        pluginConfig,
+        queueTaskbarLyricsProcessOperation,
+        taskbarLyricsProcessOperation: null,
+        taskbarLyricsStartingUntil: 0
     };
 });

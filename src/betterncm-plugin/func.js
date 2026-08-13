@@ -9,27 +9,45 @@ plugin.onLoad(async () => {
         defaultConfig,
         pluginConfig
     } = { ...this.base };
-    const { startGetLyric, stopGetLyric } = { ...this.lyric };
+    const {
+        startGetLyric,
+        stopGetLyric,
+        waitForTaskbarLyricsProcessStopped,
+        waitForTaskbarLyricsProcessRunning
+    } = { ...this.lyric };
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
 
 
     // 启动任务栏歌词软件
-    const TaskbarLyricsStart = async () => {
-        addLog("[生命周期] 正在启动 C++ 程序...", "info");
-        // 这BetterNCM获取的路径是不标准的会出问题，要替换掉下面那俩字符
-        const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
-        this.base.taskbarLyricsDataPath = dataPath;
-        const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
-        const taskkill = `taskkill /F /IM "taskbar-lyrics.exe"`;
-        const xcopy = `xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}"`;
-        const exec = `"${dataPath}\\taskbar-lyrics.exe" ${TaskbarLyricsPort}`;
-        const cmd = `${taskkill} & ${xcopy} && ${exec}`;
-        await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
-        addLog("[生命周期] C++ 程序已启动，端口：" + TaskbarLyricsPort, "success");
-        addLog("[配置] C++ 将从 taskbar-lyrics.ini 加载配置", "info");
-        startGetLyric();
+    const TaskbarLyricsStart = () => {
+        const operation = async () => {
+            addLog("[生命周期] 正在启动 C++ 程序...", "info");
+            // 这BetterNCM获取的路径是不标准的会出问题，要替换掉下面那俩字符
+            const dataPath = (await betterncm.app.getDataPath()).replace("/", "\\");
+            this.base.taskbarLyricsDataPath = dataPath;
+            const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
+            const taskkill = `taskkill /F /IM "taskbar-lyrics.exe"`;
+            const xcopy = `xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}"`;
+            const exec = `"${dataPath}\\taskbar-lyrics.exe" ${TaskbarLyricsPort}`;
+            await betterncm.app.exec(`cmd /S /C ${taskkill} >nul 2>&1`, false, false);
+            if (typeof waitForTaskbarLyricsProcessStopped === "function"
+                && !(await waitForTaskbarLyricsProcessStopped())) {
+                throw new Error("旧 C++ 程序未退出，已取消启动");
+            }
+            await betterncm.app.exec(`cmd /S /C ${xcopy} && ${exec}`, false, false);
+            if (typeof waitForTaskbarLyricsProcessRunning === "function"
+                && !(await waitForTaskbarLyricsProcessRunning())) {
+                addLog("[生命周期] 未在实际进程列表中确认 C++ 程序，继续等待歌词回执", "warn");
+            }
+            this.base.taskbarLyricsStartingUntil = Date.now() + 5000;
+            addLog("[生命周期] C++ 程序已启动，端口：" + TaskbarLyricsPort, "success");
+            addLog("[配置] C++ 将从 taskbar-lyrics.ini 加载配置", "info");
+            startGetLyric();
+        };
+        const queue = this.base.queueTaskbarLyricsProcessOperation;
+        return typeof queue === "function" ? queue(operation) : operation();
     };
 
 
