@@ -24,6 +24,21 @@ plugin.onLoad(async () => {
     let listenerRegistrationPending = false;
     let registeredRetrievalMethod = null;
     let listenerRegistrationToken = 0;
+    // 网易云在缓冲、跳转期间可能短暂回调异常的播放进度。
+    // 这里保留原始进度，同时对播放中的前跳和回退做保守校正；真正的
+    // 可听时间无法仅靠 PlayProgress 观测，因此所有校正状态都会展示在诊断卡片中。
+    const PROGRESS_JUMP_THRESHOLD = 1;
+    const PROGRESS_RAPID_DELTA_THRESHOLD = 0.5;
+    const PROGRESS_RAPID_LEAD_THRESHOLD = 0.25;
+    const PROGRESS_START_EPSILON = 0.01;
+    let lastReportedProgress = null;
+    let lastProgressTimestamp = null;
+    let correctedProgress = null;
+    let progressPlaybackState = "unknown";
+    let pendingForwardProgress = null;
+    let progressCorrectionStatus = "未开始";
+    let progressCorrectionReason = "等待播放进度";
+    let progressCorrectionCount = 0;
     const LYRIC_ACK_TIMEOUT = 1000;
     let lyricAckRequestId = 0;
     let lyricAckGeneration = 0;
@@ -34,6 +49,114 @@ plugin.onLoad(async () => {
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
     const updateDebug = (method, payload) => window.TaskbarLyricsDebug?.[method]?.(payload);
+    const getMonotonicTime = () => (
+        typeof performance !== "undefined" && typeof performance.now === "function"
+            ? performance.now()
+            : Date.now()
+    );
+
+
+    const resetProgressCorrection = () => {
+        lastReportedProgress = null;
+        lastProgressTimestamp = null;
+        correctedProgress = null;
+        progressPlaybackState = "unknown";
+        pendingForwardProgress = null;
+        progressCorrectionStatus = "未开始";
+        progressCorrectionReason = "等待播放进度";
+        progressCorrectionCount = 0;
+    };
+
+
+    // 参考上游歌词适配器的单调进度保护：异常前跳先等待一个稳定回调，
+    // 小幅回退在播放中保持上一有效值，暂停或明确跳转时允许重新锚定。
+    const correctPlaybackProgress = value => {
+        const rawProgress = Number(value);
+        if (!Number.isFinite(rawProgress)) {
+            progressCorrectionStatus = "无效进度";
+            progressCorrectionReason = "PlayProgress 不是有效数字";
+            return null;
+        }
+
+        const normalizedProgress = Math.max(0, rawProgress);
+        const now = getMonotonicTime();
+        const previousReported = lastReportedProgress;
+        const previousCorrected = correctedProgress;
+        const previousTimestamp = lastProgressTimestamp;
+        lastReportedProgress = normalizedProgress;
+        lastProgressTimestamp = now;
+
+        if (previousReported === null || previousCorrected === null) {
+            correctedProgress = normalizedProgress;
+            progressCorrectionStatus = "已初始化";
+            progressCorrectionReason = "首次有效播放进度";
+            pendingForwardProgress = null;
+            return correctedProgress;
+        }
+
+        const delta = normalizedProgress - previousReported;
+        const isPlaying = progressPlaybackState === "playing";
+        const isReset = normalizedProgress <= PROGRESS_START_EPSILON && previousReported > PROGRESS_START_EPSILON;
+        const isLargeBackwardJump = delta < -PROGRESS_JUMP_THRESHOLD;
+        const elapsed = previousTimestamp === null
+            ? null
+            : Math.max(0, (now - previousTimestamp) / 1000);
+        const isRapidForward = delta > PROGRESS_RAPID_DELTA_THRESHOLD
+            && elapsed !== null
+            && delta - elapsed > PROGRESS_RAPID_LEAD_THRESHOLD;
+
+        // 回到起点或明显向后跳转通常是重新播放/用户拖动，立即接受新锚点，
+        // 否则单调保护会让用户无法向前后拖动进度。
+        if (isReset || isLargeBackwardJump || !isPlaying) {
+            correctedProgress = normalizedProgress;
+            pendingForwardProgress = null;
+            progressCorrectionStatus = isPlaying && (isReset || isLargeBackwardJump)
+                ? "重新锚定"
+                : "正常";
+            progressCorrectionReason = isReset
+                ? "检测到回到起点，接受新的播放锚点"
+                : isLargeBackwardJump
+                    ? "检测到向后跳转，接受新的播放锚点"
+                    : "暂停状态不做单调限制";
+            return correctedProgress;
+        }
+
+        // 播放中的异常前跳可能来自缓冲期间累计的时间。先保留上一有效值，
+        // 下一次回调稳定后再重新锚定，避免一次异常值直接切换到错误歌词。
+        if (pendingForwardProgress !== null) {
+            if (Math.abs(normalizedProgress - pendingForwardProgress) <= PROGRESS_JUMP_THRESHOLD) {
+                correctedProgress = normalizedProgress;
+                pendingForwardProgress = null;
+                progressCorrectionStatus = "已重新锚定";
+                progressCorrectionReason = "连续进度稳定，确认新的播放位置";
+            } else {
+                pendingForwardProgress = normalizedProgress;
+                progressCorrectionStatus = "等待确认";
+                progressCorrectionReason = "连续进度仍在跳变，暂保留上一有效值";
+            }
+            return correctedProgress;
+        }
+
+        if (delta > PROGRESS_JUMP_THRESHOLD || isRapidForward) {
+            pendingForwardProgress = normalizedProgress;
+            progressCorrectionCount++;
+            progressCorrectionStatus = "等待确认";
+            progressCorrectionReason = `${isRapidForward ? "疑似缓冲" : "播放中检测到"}前跳 ${delta.toFixed(2)} 秒，暂保留上一有效值`;
+            return correctedProgress;
+        }
+
+        const nextProgress = Math.max(previousCorrected, normalizedProgress);
+        if (nextProgress !== normalizedProgress) {
+            progressCorrectionCount++;
+            progressCorrectionStatus = "抑制回退";
+            progressCorrectionReason = "播放中忽略小幅回退，保持时间轴单调";
+        } else {
+            progressCorrectionStatus = progressCorrectionCount > 0 ? "已校正" : "正常";
+            progressCorrectionReason = "进度连续";
+        }
+        correctedProgress = nextProgress;
+        return correctedProgress;
+    };
 
 
     const invalidateLyricAcks = () => {
@@ -104,6 +227,7 @@ plugin.onLoad(async () => {
             "is_song_info": isSongInfo,
             "is_real_lyric": isRealLyric
         };
+        const requestStartedAt = getMonotonicTime();
 
         // 歌词可能在几十毫秒内连续切换。每条请求都保留回执窗口，收到任意
         // 更新后的有效回执即可证明 C++ 仍然工作；这样短歌词不会阻塞下一条，
@@ -114,6 +238,7 @@ plugin.onLoad(async () => {
             generation: lyricAckGeneration,
             timeoutId: null,
             timedOut: false,
+            responseLatencyMs: null,
             superseded: false
         };
         pendingLyricAcks.set(pending.requestId, pending);
@@ -152,12 +277,28 @@ plugin.onLoad(async () => {
                 })
             ]);
             if (!isCurrentGeneration()) return response;
+            const responseLatencyMs = Math.max(0, getMonotonicTime() - requestStartedAt);
+            pending.responseLatencyMs = responseLatencyMs;
+            if (responseLatencyMs > LYRIC_ACK_TIMEOUT && isLatestRequest()) {
+                const detail = `歌词回执耗时 ${Math.round(responseLatencyMs)}ms，超过 ${LYRIC_ACK_TIMEOUT}ms`;
+                updateDebug("updateLyricAck", {
+                    status: "超时",
+                    statusCode: Number.isInteger(response?.status) ? response.status : null,
+                    latencyMs: responseLatencyMs,
+                    detail,
+                    currentLyric: null
+                });
+                addLog(`[C++歌词回执] ${detail}，立即重启 C++ 程序`, "error");
+                void reconnect();
+                return null;
+            }
             if (response?.status === 204 && !isSongInfo && !isRealLyric) {
                 markAcknowledged();
                 if (!isLatestRequest()) return response;
                 updateDebug("updateLyricAck", {
                     status: "已忽略",
                     statusCode: response.status,
+                    latencyMs: responseLatencyMs,
                     detail: "C++ 按歌曲信息保护规则忽略空歌词",
                     currentLyric: null
                 });
@@ -192,6 +333,7 @@ plugin.onLoad(async () => {
             updateDebug("updateLyricAck", {
                 status: "正常",
                 statusCode: response.status,
+                latencyMs: responseLatencyMs,
                 detail: "C++ 已复述当前歌词",
                 currentLyric
             });
@@ -203,9 +345,11 @@ plugin.onLoad(async () => {
             if (!isLatestRequest() && !pending.timedOut) return null;
             if (lastLyricAckRequestId >= pending.requestId) return null;
             const detail = error?.message ?? String(error);
+            const elapsedMs = Math.max(0, getMonotonicTime() - requestStartedAt);
             updateDebug("updateLyricAck", {
-                status: "异常",
+                status: pending.timedOut ? "超时" : "异常",
                 statusCode: null,
+                latencyMs: pending.timedOut ? elapsedMs : null,
                 detail,
                 currentLyric: null
             });
@@ -298,7 +442,7 @@ plugin.onLoad(async () => {
             if (!requested) return true;
 
             let snapshot = null;
-            for (let attempt = 1; attempt <= 10; attempt++) {
+            for (let attempt = 1; attempt <= 12; attempt++) {
                 try {
                     snapshot = await betterncm.fs.readFileText(snapshotPath);
                     break;
@@ -321,6 +465,16 @@ plugin.onLoad(async () => {
     };
 
 
+    const waitForTaskbarLyricsProcessStopped = async () => {
+        for (let check = 1; check <= 20; check++) {
+            if (!(await isTaskbarLyricsProcessRunning())) return true;
+            addLog(`[重连] 旧 C++ 进程仍在运行，等待退出（${check}/20）`, "warn");
+            await wait(250);
+        }
+        return false;
+    };
+
+
     const restartTaskbarLyricsProcess = async () => {
         const dataPath = await getTaskbarLyricsDataPath();
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
@@ -339,18 +493,13 @@ plugin.onLoad(async () => {
                     addLog(`[重连] 结束旧 C++ 程序命令返回异常：${error?.message ?? error}`, "warn");
                 }
 
-                // 查询实际进程列表，确认旧进程确实已经退出。
-                let oldProcessStopped = false;
-                for (let check = 1; check <= 12; check++) {
-                    if (!(await isTaskbarLyricsProcessRunning())) {
-                        oldProcessStopped = true;
-                        break;
-                    }
-                    addLog(`[重连] 旧 C++ 进程仍在运行，等待退出（${check}/12）`, "warn");
-                    await wait(250);
-                }
+                // 查询实际进程列表，确认旧进程确实已经退出；未确认退出前绝不启动新进程。
+                const oldProcessStopped = await waitForTaskbarLyricsProcessStopped();
                 if (!oldProcessStopped) {
                     throw new Error("旧 C++ 程序未退出，已取消启动新进程");
+                }
+                if (await isTaskbarLyricsProcessRunning()) {
+                    throw new Error("旧 C++ 程序仍存在，已取消启动新进程");
                 }
 
                 addLog(`[重连] 正在启动 C++ 程序（${attempt}/3）...`, "info");
@@ -445,6 +594,7 @@ plugin.onLoad(async () => {
         parsedLyric = null;
         currentIndex = 0;
         lastProgressTime = 0;
+        resetProgressCorrection();
         hasCurrentSongProgress = false;
         hasDisplayedRealLyric = false;
         interludeSent = false;
@@ -747,15 +897,24 @@ plugin.onLoad(async () => {
         updateDebug("touchListener", { event: "PlayProgress" });
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
         const numericTime = Number(time);
-        const adjustedTime = numericTime + (Number.isFinite(adjust) ? adjust : 0);
+        const correctedTime = correctPlaybackProgress(numericTime);
+        const adjustedTime = correctedTime === null
+            ? null
+            : correctedTime + (Number.isFinite(adjust) ? adjust : 0);
         updateDebug("updatePlaybackProgress", {
             rawTime: numericTime,
-            adjustedTime
+            correctedTime,
+            adjustedTime,
+            automaticOffset: correctedTime === null ? null : correctedTime - numericTime,
+            correctionStatus: progressCorrectionStatus,
+            correctionReason: progressCorrectionReason,
+            correctionCount: progressCorrectionCount
         });
-        lastProgressTime = numericTime;
+        if (correctedTime === null) return;
+        lastProgressTime = correctedTime;
         hasCurrentSongProgress = true;
-        sendCurrentLyric(numericTime, false);
-        scheduleLineEndHide(numericTime);
+        sendCurrentLyric(correctedTime, false);
+        scheduleLineEndHide(correctedTime);
     }
 
 
@@ -763,6 +922,7 @@ plugin.onLoad(async () => {
     const play_state = async (_, state) => {
         updateDebug("touchListener", { event: "PlayState" });
         let playing;
+        let stateTime = null;
         if (typeof state === "boolean") playing = state;
         else if (typeof state === "number") playing = state !== 0;
         else if (typeof state === "string") {
@@ -777,13 +937,20 @@ plugin.onLoad(async () => {
         else if (state && typeof state === "object") {
             playing = state.playing ?? state.isPlaying ?? state.data?.playing;
             const t = state.time ?? state.currentTime ?? state.data?.time;
-            if (typeof t === "number") lastProgressTime = t;
+            if (typeof t === "number") stateTime = t;
         }
 
         // 无法识别的状态格式，记日志方便排查
         if (playing === undefined || playing === null) {
             addLog(`[播放状态] 无法识别 PlayState：${JSON.stringify(state)}`, "warn");
             return;
+        }
+
+        progressPlaybackState = playing ? "playing" : "paused";
+        if (!playing) pendingForwardProgress = null;
+        if (stateTime !== null) {
+            const correctedTime = correctPlaybackProgress(stateTime);
+            if (correctedTime !== null) lastProgressTime = correctedTime;
         }
 
         if (playing) {
@@ -934,6 +1101,8 @@ plugin.onLoad(async () => {
         }
         clearLineEndTimer();
         parsedLyric = null;
+        lastProgressTime = 0;
+        resetProgressCorrection();
         hasCurrentSongProgress = false;
         hasDisplayedRealLyric = false;
         musicId = 0;

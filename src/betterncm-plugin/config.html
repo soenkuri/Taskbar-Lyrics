@@ -1,17 +1,67 @@
 <div id="taskbar-lyrics-dom">
     <!-- tab选项卡 -->
     <header class="tab_box">
-        <button class="tab_button active">字体</button>
-        <button class="tab_button">歌词</button>
-        <button class="tab_button">窗口</button>
-        <button class="tab_button">关于</button>
-        <button class="tab_button">日志</button>
+        <button class="tab_button" data-tab="about">关于</button>
+        <button class="tab_button active" data-tab="debug">调试</button>
+        <button class="tab_button" data-tab="log">日志</button>
     </header>
 
     <!-- 主体内容 -->
     <main class="content_box">
-        <!-- 字体 -->
-        <div class="content font show">
+        <!-- 调试 -->
+        <div class="content debug show">
+            <!-- 调试状态卡片 -->
+            <section class="debug-diagnostics">
+                <h1>
+                    <strong>调试状态</strong>
+                </h1>
+                <div class="diagnostics-grid" aria-live="polite">
+                    <div class="diagnostic-card diagnostic-card-wide">
+                        <span class="diagnostic-label">当前歌词匹配</span>
+                        <output class="diagnostic-value diagnostic-match">尚未匹配歌词</output>
+                        <small class="diagnostic-detail diagnostic-match-detail">等待歌词加载</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">播放进度（自动校正）</span>
+                        <output class="diagnostic-value diagnostic-progress">未获取</output>
+                        <small class="diagnostic-detail diagnostic-progress-detail">等待播放进度回调</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">歌词监听</span>
+                        <output class="diagnostic-value diagnostic-listener">未注册</output>
+                        <small class="diagnostic-detail diagnostic-listener-detail">等待注册</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">歌词类型</span>
+                        <output class="diagnostic-value diagnostic-lyric-type">未获取</output>
+                        <small class="diagnostic-detail diagnostic-lyric-summary-detail">等待解析</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">有效歌词行</span>
+                        <output class="diagnostic-value diagnostic-lyric-lines">未统计</output>
+                        <small class="diagnostic-detail">少于 5 行无歌词</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">间奏标记</span>
+                        <output class="diagnostic-value diagnostic-interlude">未统计</output>
+                        <small class="diagnostic-detail">普通 LRC 空时间戳</small>
+                    </div>
+                    <div class="diagnostic-card">
+                        <span class="diagnostic-label">C++ 回执延迟</span>
+                        <output class="diagnostic-value diagnostic-lyric-ack">未检测</output>
+                        <small class="diagnostic-detail diagnostic-lyric-ack-detail">等待回执</small>
+                    </div>
+                </div>
+                <div class="diagnostics-actions">
+                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-reset">重置状态</button>
+                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-disconnect">模拟回执失败</button>
+                </div>
+            </section>
+
+            <hr />
+
+            <!-- 字体设置 -->
+            <div class="content font show">
             <!-- 更换字体 -->
             <section class="font-settings">
                 <h1>
@@ -154,7 +204,7 @@
         </div>
 
         <!-- 歌词 -->
-        <div class="content lyrics">
+        <div class="content lyrics show">
             <!-- 歌词设置 -->
             <section class="lyrics-settings">
                 <h1>
@@ -300,7 +350,7 @@
         </div>
 
         <!-- 窗口 -->
-        <div class="content window">
+        <div class="content window show">
             <!-- 修改位置 -->
             <section class="position-settings">
                 <h1>
@@ -371,6 +421,7 @@
                     </div>
                 </div>
             </section>
+        </div>
         </div>
 
         <!-- 关于 -->
@@ -454,50 +505,9 @@
         <div class="content log">
             <section>
                 <h1>
-                    <strong>实时调试信息</strong>
+                    <strong>具体日志</strong>
                     <button class="u-ibtn5 u-ibtnsz8 log-clear">清空</button>
                 </h1>
-                <div class="diagnostics-grid" aria-live="polite">
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">播放进度</span>
-                        <output class="diagnostic-value diagnostic-progress">未获取</output>
-                        <small class="diagnostic-detail diagnostic-progress-detail">等待播放进度回调</small>
-                    </div>
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">歌词监听</span>
-                        <output class="diagnostic-value diagnostic-listener">未注册</output>
-                        <small class="diagnostic-detail diagnostic-listener-detail">等待歌词监听注册</small>
-                    </div>
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">歌词类型</span>
-                        <output class="diagnostic-value diagnostic-lyric-type">未获取</output>
-                        <small class="diagnostic-detail diagnostic-lyric-summary-detail">等待歌词解析</small>
-                    </div>
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">有效歌词行</span>
-                        <output class="diagnostic-value diagnostic-lyric-lines">未统计</output>
-                        <small class="diagnostic-detail">少于 5 行视为无可用歌词</small>
-                    </div>
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">间奏标记</span>
-                        <output class="diagnostic-value diagnostic-interlude">未统计</output>
-                        <small class="diagnostic-detail">普通 LRC 空时间戳识别</small>
-                    </div>
-                    <div class="diagnostic-card">
-                        <span class="diagnostic-label">C++ 歌词回执</span>
-                        <output class="diagnostic-value diagnostic-lyric-ack">未检测</output>
-                        <small class="diagnostic-detail diagnostic-lyric-ack-detail">等待 C++ 复述歌词</small>
-                    </div>
-                    <div class="diagnostic-card diagnostic-card-wide">
-                        <span class="diagnostic-label">当前歌词匹配</span>
-                        <output class="diagnostic-value diagnostic-match">尚未匹配歌词</output>
-                        <small class="diagnostic-detail diagnostic-match-detail">等待歌词加载</small>
-                    </div>
-                </div>
-                <div class="diagnostics-actions">
-                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-reset">重置状态</button>
-                    <button class="u-ibtn5 u-ibtnsz8 diagnostics-disconnect">模拟歌词回执失败（一次）</button>
-                </div>
                 <div class="log-container">
                     <div class="log-entries"></div>
                 </div>

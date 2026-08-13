@@ -15,7 +15,12 @@ let logContainerEl = null;
 const diagnosticsState = {
     playback: {
         rawTime: null,
+        correctedTime: null,
         adjustedTime: null,
+        automaticOffset: null,
+        correctionStatus: "未开始",
+        correctionReason: "等待播放进度",
+        correctionCount: 0,
         updatedAt: null
     },
     listener: {
@@ -46,6 +51,7 @@ const diagnosticsState = {
     lyricAck: {
         status: "未检测",
         statusCode: null,
+        latencyMs: null,
         detail: "等待 C++ 歌词回执",
         currentLyric: null,
         lastAt: null,
@@ -85,6 +91,34 @@ const formatDiagnosticSeconds = value => {
 };
 
 
+const formatDiagnosticPlaybackTime = value => {
+    const number = toFiniteNumber(value);
+    if (number === null) return "未获取";
+    const totalMilliseconds = Math.max(0, Math.round(number * 1000));
+    const minutes = Math.floor(totalMilliseconds / 60000);
+    const seconds = Math.floor(totalMilliseconds / 1000) % 60;
+    const milliseconds = totalMilliseconds % 1000;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}:${String(milliseconds).padStart(3, "0")}`;
+};
+
+
+const formatDiagnosticSignedSeconds = value => {
+    const number = toFiniteNumber(value);
+    if (number === null) return "无效";
+    const sign = number > 0 ? "+" : "";
+    return `${sign}${number.toFixed(2)}秒`;
+};
+
+
+const formatDiagnosticMilliseconds = value => {
+    const number = toFiniteNumber(value);
+    if (number === null) return "未获取";
+    return number >= 1000
+        ? `${(number / 1000).toFixed(2)}秒`
+        : `${Math.round(number)}ms`;
+};
+
+
 const formatElapsed = timestamp => {
     if (!timestamp) return "尚无记录";
     const elapsed = Math.max(0, Date.now() - timestamp);
@@ -95,40 +129,43 @@ const formatElapsed = timestamp => {
 };
 
 
-const formatCppLyric = lyric => {
-    if (!lyric || typeof lyric !== "object") return "未知";
-    const basic = typeof lyric.basic === "string" ? lyric.basic.trim() : "";
-    const extra = typeof lyric.extra === "string" ? lyric.extra.trim() : "";
-    if (!basic && !extra) return "空歌词";
-    const text = [basic, extra].filter(Boolean).join(" / ");
-    return lyric.is_song_info ? `${text}（歌曲信息）` : text;
-};
-
-
 const renderDiagnostics = () => {
     const playback = diagnosticsState.playback;
     if (diagnosticProgressEl) {
-        diagnosticProgressEl.textContent = playback.rawTime === null
+        diagnosticProgressEl.textContent = playback.correctedTime === null
             ? "未获取"
-            : formatDiagnosticSeconds(playback.rawTime);
+            : formatDiagnosticPlaybackTime(playback.correctedTime);
     }
     if (diagnosticProgressDetailEl) {
-        diagnosticProgressDetailEl.textContent = playback.rawTime === null
-            ? "等待播放进度回调"
-            : `校准后 ${formatDiagnosticSeconds(playback.adjustedTime)} · ${playback.updatedAt}`;
+        if (playback.correctedTime === null) {
+            diagnosticProgressDetailEl.textContent = "等待播放进度回调";
+        } else {
+            const raw = `原始 ${formatDiagnosticPlaybackTime(playback.rawTime)}`;
+            const offset = `自动偏移（校正-原始）${formatDiagnosticSignedSeconds(playback.automaticOffset)}`;
+            const correction = `${playback.correctionStatus}${playback.correctionCount ? `（${playback.correctionCount} 次）` : ""}`;
+            const reason = ["正常", "已校正"].includes(playback.correctionStatus)
+                ? ""
+                : playback.correctionReason;
+            diagnosticProgressDetailEl.textContent = [
+                raw,
+                offset,
+                correction,
+                reason,
+                playback.updatedAt
+            ].filter(Boolean).join(" · ");
+        }
     }
 
     const listener = diagnosticsState.listener;
     if (diagnosticListenerEl) diagnosticListenerEl.textContent = listener.status;
     if (diagnosticListenerDetailEl) {
-        const events = listener.events.length ? listener.events.join("、") : "无事件";
         const registration = listener.registeredAt
-            ? `本次注册 ${listener.registeredClock} · ${formatElapsed(listener.registeredAt)}${listener.registrationCount ? ` · 第 ${listener.registrationCount} 次` : ""}`
-            : "尚未完成注册";
+            ? `注册 ${listener.registeredClock} · ${formatElapsed(listener.registeredAt)}`
+            : "未注册";
         const activity = listener.lastActivityAt
-            ? `上次活动 ${listener.lastActivityClock} · ${formatElapsed(listener.lastActivityAt)}${listener.lastActivityType ? ` · ${listener.lastActivityType}` : ""}`
-            : "尚无回调活动";
-        diagnosticListenerDetailEl.textContent = [listener.method, events, registration, activity, listener.detail]
+            ? `上次 ${listener.lastActivityType || "回调"} · ${formatElapsed(listener.lastActivityAt)}`
+            : "无回调";
+        diagnosticListenerDetailEl.textContent = [listener.method, registration, activity]
             .filter(Boolean)
             .join(" · ");
     }
@@ -169,15 +206,21 @@ const renderDiagnostics = () => {
 
     const lyricAck = diagnosticsState.lyricAck;
     if (diagnosticLyricAckEl) {
-        diagnosticLyricAckEl.textContent = lyricAck.status;
+        diagnosticLyricAckEl.textContent = formatDiagnosticMilliseconds(lyricAck.latencyMs);
     }
     if (diagnosticLyricAckDetailEl) {
         const lastAck = lyricAck.lastAt
-            ? `上次回执 ${lyricAck.lastClock} · ${formatElapsed(lyricAck.lastAt)}`
-            : "尚无歌词回执";
+            ? `上次 ${lyricAck.lastClock} · ${formatElapsed(lyricAck.lastAt)}`
+            : "无回执";
         const statusCode = lyricAck.statusCode ? `HTTP ${lyricAck.statusCode}` : "";
-        const currentLyric = `C++复述：${formatCppLyric(lyricAck.currentLyric)}`;
-        diagnosticLyricAckDetailEl.textContent = [lastAck, statusCode, currentLyric, lyricAck.detail]
+        diagnosticLyricAckDetailEl.textContent = [
+            lyricAck.status,
+            lastAck,
+            statusCode,
+            lyricAck.status === "正常" || lyricAck.status === "已忽略"
+                ? ""
+                : lyricAck.detail
+        ]
             .filter(Boolean)
             .join(" · ");
     }
@@ -192,7 +235,14 @@ window.TaskbarLyricsDebug = {
     updatePlaybackProgress: payload => {
         const rawTime = toFiniteNumber(payload?.rawTime);
         diagnosticsState.playback.rawTime = rawTime;
+        diagnosticsState.playback.correctedTime = toFiniteNumber(payload?.correctedTime);
         diagnosticsState.playback.adjustedTime = toFiniteNumber(payload?.adjustedTime);
+        diagnosticsState.playback.automaticOffset = toFiniteNumber(payload?.automaticOffset);
+        diagnosticsState.playback.correctionStatus = payload?.correctionStatus ?? "未知";
+        diagnosticsState.playback.correctionReason = payload?.correctionReason ?? "";
+        diagnosticsState.playback.correctionCount = Number.isInteger(payload?.correctionCount)
+            ? payload.correctionCount
+            : 0;
         diagnosticsState.playback.updatedAt = getClockTime();
         renderDiagnostics();
     },
@@ -233,6 +283,8 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.lyricAck.statusCode = Number.isInteger(payload?.statusCode)
             ? payload.statusCode
             : null;
+        const latencyMs = toFiniteNumber(payload?.latencyMs);
+        if (latencyMs !== null) diagnosticsState.lyricAck.latencyMs = latencyMs;
         diagnosticsState.lyricAck.detail = payload?.detail ?? "";
         diagnosticsState.lyricAck.currentLyric = payload?.currentLyric
             && typeof payload.currentLyric === "object"
@@ -251,7 +303,16 @@ window.TaskbarLyricsDebug = {
         renderDiagnostics();
     },
     reset: () => {
-        diagnosticsState.playback = { rawTime: null, adjustedTime: null, updatedAt: null };
+        diagnosticsState.playback = {
+            rawTime: null,
+            correctedTime: null,
+            adjustedTime: null,
+            automaticOffset: null,
+            correctionStatus: "未开始",
+            correctionReason: "等待播放进度",
+            correctionCount: 0,
+            updatedAt: null
+        };
         diagnosticsState.listener = {
             status: "未注册",
             method: "-",
@@ -280,6 +341,7 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.lyricAck = {
             status: "未检测",
             statusCode: null,
+            latencyMs: null,
             detail: "等待 C++ 歌词回执",
             currentLyric: null,
             lastAt: null,
@@ -399,19 +461,21 @@ plugin.onLoad(async () => {
         const content_box = configView.querySelector(".content_box")
 
         const all_tab_button = tab_box.querySelectorAll(".tab_button");
-        const all_content = content_box.querySelectorAll(".content");
+        const all_content = Array.from(content_box.children)
+            .filter(content => content.classList.contains("content"));
 
-        all_tab_button.forEach((tab, index) => {
+        all_tab_button.forEach(tab => {
             tab.addEventListener("click", () => {
                 // 激活标签
                 const active_tab = tab_box.querySelector(".active");
-                active_tab.classList.remove("active");
+                active_tab?.classList.remove("active");
                 tab.classList.add("active");
                 // 显示内容
-                const show_content = content_box.querySelector(".show");
-                show_content.classList.remove("show");
-                all_content[index].classList.add("show");
-                content_box.classList.toggle("log-active", all_content[index].classList.contains("log"));
+                const target = tab.dataset.tab;
+                all_content.forEach(content => {
+                    content.classList.toggle("show", content.classList.contains(target));
+                });
+                content_box.classList.toggle("log-active", target === "log");
             });
         });
     }

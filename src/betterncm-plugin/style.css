@@ -220,9 +220,9 @@ body.s-theme-white #taskbar-lyrics-dom .content input.switch-btn:checked {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    min-height: 66px;
-    padding: 8px 10px;
+    gap: 2px;
+    min-height: 56px;
+    padding: 6px 8px;
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.2);
