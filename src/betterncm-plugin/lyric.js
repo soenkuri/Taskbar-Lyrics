@@ -460,6 +460,12 @@ plugin.onLoad(async () => {
 
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
+        const adjust = Number(pluginConfig.get("effect")["adjust"]);
+        const adjustedTime = Number(time) + (Number.isFinite(adjust) ? adjust : 0);
+        addLog(
+            `[播放进度] 获取到=${JSON.stringify(time)}秒，校准后=${Number.isFinite(adjustedTime) ? adjustedTime : "无效"}秒`,
+            "info"
+        );
         lastProgressTime = time;
         hasCurrentSongProgress = true;
         sendCurrentLyric(time, false);
