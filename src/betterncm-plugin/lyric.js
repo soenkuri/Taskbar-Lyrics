@@ -174,14 +174,43 @@ plugin.onLoad(async () => {
     const restartTaskbarLyricsProcess = async () => {
         const dataPath = await getTaskbarLyricsDataPath();
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
-        // 与手动关闭后重新开启使用同一启动方式，避免 start /b 改变子进程生命周期
-        const cmd = `taskkill /F /IM "taskbar-lyrics.exe" & ping 127.0.0.1 -n 2 > nul & xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
         let lastError = null;
 
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
+                addLog(`[重连] 正在结束旧 C++ 程序（${attempt}/3）...`, "info");
+                try {
+                    await betterncm.app.exec(
+                        `cmd /S /C taskkill /F /T /IM "taskbar-lyrics.exe" >nul 2>&1`,
+                        false,
+                        false
+                    );
+                } catch (error) {
+                    addLog(`[重连] 结束旧 C++ 程序命令返回异常：${error?.message ?? error}`, "warn");
+                }
+
+                // 不能直接用 ping 判断“已恢复”，先确认旧服务确实已经退出。
+                let oldProcessStopped = false;
+                for (let check = 1; check <= 12; check++) {
+                    try {
+                        const response = await TaskbarLyricsAPI.ping({});
+                        if (!response.ok) {
+                            oldProcessStopped = true;
+                            break;
+                        }
+                    } catch {
+                        oldProcessStopped = true;
+                        break;
+                    }
+                    await wait(250);
+                }
+                if (!oldProcessStopped) {
+                    throw new Error("旧 C++ 程序未退出，已取消启动新进程");
+                }
+
                 addLog(`[重连] 正在启动 C++ 程序（${attempt}/3）...`, "info");
-                const started = await betterncm.app.exec(`cmd /S /C ${cmd}`, false, false);
+                const startCommand = `xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
+                const started = await betterncm.app.exec(`cmd /S /C ${startCommand}`, false, false);
                 if (!started) throw new Error("启动命令返回失败");
             } catch (error) {
                 lastError = error;

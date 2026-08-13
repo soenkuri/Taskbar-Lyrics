@@ -94,7 +94,7 @@ plugin.onLoad(async () => {
     };
 
 
-    // 日志页使用的一次性断联模拟，不会终止或修改真实 C++ 进程。
+    // 日志页使用的一次性断联模拟；模拟本身不终止进程，后续会进入真实重连流程。
     window.TaskbarLyricsDebugTransport = {
         simulateCppDisconnect: () => {
             if (simulateDisconnectOnce) return;
