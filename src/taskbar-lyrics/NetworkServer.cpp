@@ -151,7 +151,6 @@ void 写入颜色(
         this->网络服务器.Post("/taskbar/window/margin", handler(&网络服务器类::边距));
         this->网络服务器.Post("/taskbar/window/screen", handler(&网络服务器类::屏幕));
         this->网络服务器.Post("/taskbar/animation", handler(&网络服务器类::过渡动画));
-        this->网络服务器.Post("/taskbar/ping", handler(&网络服务器类::ping));
         this->网络服务器.Post("/taskbar/close", handler(&网络服务器类::关闭));
         this->网络服务器.listen("127.0.0.1", 端口);
     };
@@ -317,7 +316,15 @@ void 网络服务器类::歌词(
     窗口->副歌词 = 新副歌词;
     窗口->正在显示歌曲信息 = 是歌曲信息;
 
-    PostMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
+    // 同步等待主窗口线程接收本次歌词更新，再返回回执；否则插件可能在
+    // C++ 尚未应用更新时就收到 200，无法识别渲染线程卡住的情况。
+    SendMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
+    nlohmann::json 回执 = {
+        {"basic", this->字符转换.to_bytes(窗口->主歌词)},
+        {"extra", this->字符转换.to_bytes(窗口->副歌词)},
+        {"is_song_info", 窗口->正在显示歌曲信息}
+    };
+    res.set_content(回执.dump(), "application/json; charset=UTF-8");
     res.status = 200;
 }
 
@@ -433,14 +440,6 @@ void 网络服务器类::过渡动画(
     this->保存配置();
     this->加载配置();
 
-    res.status = 200;
-}
-
-
-void 网络服务器类::ping(
-    const httplib::Request& req,
-    httplib::Response& res
-) {
     res.status = 200;
 }
 

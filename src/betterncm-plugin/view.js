@@ -43,10 +43,11 @@ const diagnosticsState = {
         lineIndex: null,
         detail: "等待歌词加载"
     },
-    heartbeat: {
+    lyricAck: {
         status: "未检测",
         statusCode: null,
-        detail: "等待 C++ 心跳",
+        detail: "等待 C++ 歌词回执",
+        currentLyric: null,
         lastAt: null,
         lastClock: null
     }
@@ -61,8 +62,8 @@ let diagnosticInterludeEl = null;
 let diagnosticLyricSummaryDetailEl = null;
 let diagnosticMatchEl = null;
 let diagnosticMatchDetailEl = null;
-let diagnosticHeartbeatEl = null;
-let diagnosticHeartbeatDetailEl = null;
+let diagnosticLyricAckEl = null;
+let diagnosticLyricAckDetailEl = null;
 
 
 const getClockTime = () => {
@@ -91,6 +92,16 @@ const formatElapsed = timestamp => {
     if (elapsed < 60000) return `${Math.floor(elapsed / 1000)}秒前`;
     if (elapsed < 3600000) return `${Math.floor(elapsed / 60000)}分钟前`;
     return `${Math.floor(elapsed / 3600000)}小时前`;
+};
+
+
+const formatCppLyric = lyric => {
+    if (!lyric || typeof lyric !== "object") return "未知";
+    const basic = typeof lyric.basic === "string" ? lyric.basic.trim() : "";
+    const extra = typeof lyric.extra === "string" ? lyric.extra.trim() : "";
+    if (!basic && !extra) return "空歌词";
+    const text = [basic, extra].filter(Boolean).join(" / ");
+    return lyric.is_song_info ? `${text}（歌曲信息）` : text;
 };
 
 
@@ -156,16 +167,17 @@ const renderDiagnostics = () => {
             .join(" · ");
     }
 
-    const heartbeat = diagnosticsState.heartbeat;
-    if (diagnosticHeartbeatEl) {
-        diagnosticHeartbeatEl.textContent = heartbeat.status;
+    const lyricAck = diagnosticsState.lyricAck;
+    if (diagnosticLyricAckEl) {
+        diagnosticLyricAckEl.textContent = lyricAck.status;
     }
-    if (diagnosticHeartbeatDetailEl) {
-        const lastHeartbeat = heartbeat.lastAt
-            ? `上次 ${heartbeat.lastClock} · ${formatElapsed(heartbeat.lastAt)}`
-            : "尚无心跳记录";
-        const statusCode = heartbeat.statusCode ? `HTTP ${heartbeat.statusCode}` : "";
-        diagnosticHeartbeatDetailEl.textContent = [lastHeartbeat, statusCode, heartbeat.detail]
+    if (diagnosticLyricAckDetailEl) {
+        const lastAck = lyricAck.lastAt
+            ? `上次回执 ${lyricAck.lastClock} · ${formatElapsed(lyricAck.lastAt)}`
+            : "尚无歌词回执";
+        const statusCode = lyricAck.statusCode ? `HTTP ${lyricAck.statusCode}` : "";
+        const currentLyric = `C++复述：${formatCppLyric(lyricAck.currentLyric)}`;
+        diagnosticLyricAckDetailEl.textContent = [lastAck, statusCode, currentLyric, lyricAck.detail]
             .filter(Boolean)
             .join(" · ");
     }
@@ -216,14 +228,18 @@ window.TaskbarLyricsDebug = {
         diagnosticsState.lyrics.detail = payload?.detail ?? "";
         renderDiagnostics();
     },
-    updateHeartbeat: payload => {
-        diagnosticsState.heartbeat.status = payload?.status ?? "未知";
-        diagnosticsState.heartbeat.statusCode = Number.isInteger(payload?.statusCode)
+    updateLyricAck: payload => {
+        diagnosticsState.lyricAck.status = payload?.status ?? "未知";
+        diagnosticsState.lyricAck.statusCode = Number.isInteger(payload?.statusCode)
             ? payload.statusCode
             : null;
-        diagnosticsState.heartbeat.detail = payload?.detail ?? "";
-        diagnosticsState.heartbeat.lastAt = Date.now();
-        diagnosticsState.heartbeat.lastClock = getClockTime();
+        diagnosticsState.lyricAck.detail = payload?.detail ?? "";
+        diagnosticsState.lyricAck.currentLyric = payload?.currentLyric
+            && typeof payload.currentLyric === "object"
+            ? payload.currentLyric
+            : null;
+        diagnosticsState.lyricAck.lastAt = Date.now();
+        diagnosticsState.lyricAck.lastClock = getClockTime();
         renderDiagnostics();
     },
     updateLyricMatch: payload => {
@@ -261,10 +277,11 @@ window.TaskbarLyricsDebug = {
             lineIndex: null,
             detail: "等待歌词加载"
         };
-        diagnosticsState.heartbeat = {
+        diagnosticsState.lyricAck = {
             status: "未检测",
             statusCode: null,
-            detail: "等待 C++ 心跳",
+            detail: "等待 C++ 歌词回执",
+            currentLyric: null,
             lastAt: null,
             lastClock: null
         };
@@ -802,8 +819,8 @@ plugin.onLoad(async () => {
         diagnosticLyricLinesEl = configView.querySelector(".diagnostic-lyric-lines");
         diagnosticInterludeEl = configView.querySelector(".diagnostic-interlude");
         diagnosticLyricSummaryDetailEl = configView.querySelector(".diagnostic-lyric-summary-detail");
-        diagnosticHeartbeatEl = configView.querySelector(".diagnostic-heartbeat");
-        diagnosticHeartbeatDetailEl = configView.querySelector(".diagnostic-heartbeat-detail");
+        diagnosticLyricAckEl = configView.querySelector(".diagnostic-lyric-ack");
+        diagnosticLyricAckDetailEl = configView.querySelector(".diagnostic-lyric-ack-detail");
         diagnosticMatchEl = configView.querySelector(".diagnostic-match");
         diagnosticMatchDetailEl = configView.querySelector(".diagnostic-match-detail");
         const diagnosticsReset = configView.querySelector(".diagnostics-reset");
@@ -821,9 +838,9 @@ plugin.onLoad(async () => {
         });
         diagnosticsReset?.addEventListener("click", () => window.TaskbarLyricsDebug.reset());
         diagnosticsDisconnect?.addEventListener("click", () => {
-            const simulateDisconnect = window.TaskbarLyricsDebugTransport?.simulateCppDisconnect;
-            if (typeof simulateDisconnect === "function") {
-                simulateDisconnect();
+            const simulateLyricAckFailure = window.TaskbarLyricsDebugTransport?.simulateLyricAckFailure;
+            if (typeof simulateLyricAckFailure === "function") {
+                simulateLyricAckFailure();
             } else {
                 window.TaskbarLyricsLog?.("[调试] C++ 调试接口尚未就绪，请稍后再试", "warn");
             }

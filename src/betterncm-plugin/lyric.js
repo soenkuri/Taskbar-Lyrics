@@ -24,10 +24,28 @@ plugin.onLoad(async () => {
     let listenerRegistrationPending = false;
     let registeredRetrievalMethod = null;
     let listenerRegistrationToken = 0;
+    const LYRIC_ACK_TIMEOUT = 1000;
+    let lyricAckRequestId = 0;
+    let lyricAckGeneration = 0;
+    let latestLyricAck = null;
+    const pendingLyricAcks = new Map();
+    let lastLyricAckRequestId = 0;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
     const updateDebug = (method, payload) => window.TaskbarLyricsDebug?.[method]?.(payload);
+
+
+    const invalidateLyricAcks = () => {
+        lyricAckGeneration++;
+        for (const pending of pendingLyricAcks.values()) {
+            if (pending.timeoutId) clearTimeout(pending.timeoutId);
+            pending.superseded = true;
+        }
+        pendingLyricAcks.clear();
+        latestLyricAck = null;
+        lastLyricAckRequestId = lyricAckRequestId;
+    };
 
 
     const retrievalMethodName = value => ({
@@ -79,13 +97,126 @@ plugin.onLoad(async () => {
     };
 
 
-    const sendLyrics = (lyrics, { isSongInfo = false, isRealLyric = false } = {}) => {
+    const sendLyrics = async (lyrics, { isSongInfo = false, isRealLyric = false } = {}) => {
         if (isRealLyric) hasDisplayedRealLyric = true;
-        return TaskbarLyricsAPI.lyrics.lyrics({
+        const expected = {
             ...lyrics,
             "is_song_info": isSongInfo,
             "is_real_lyric": isRealLyric
-        });
+        };
+
+        // 歌词可能在几十毫秒内连续切换。每条请求都保留回执窗口，收到任意
+        // 更新后的有效回执即可证明 C++ 仍然工作；这样短歌词不会阻塞下一条，
+        // 也不会因为上一条的迟到回执而误判。若连续一整个窗口都没有回执，
+        // 仍会触发重连。
+        const pending = {
+            requestId: ++lyricAckRequestId,
+            generation: lyricAckGeneration,
+            timeoutId: null,
+            timedOut: false,
+            superseded: false
+        };
+        pendingLyricAcks.set(pending.requestId, pending);
+        latestLyricAck = pending;
+        const isCurrentGeneration = () => (
+            !pending.superseded
+            && lyricAckGeneration === pending.generation
+        );
+        const isLatestRequest = () => (
+            isCurrentGeneration()
+            && latestLyricAck === pending
+        );
+        const markAcknowledged = () => {
+            if (!isCurrentGeneration()) return;
+            lastLyricAckRequestId = Math.max(lastLyricAckRequestId, pending.requestId);
+            for (const [requestId, olderPending] of pendingLyricAcks) {
+                if (requestId >= pending.requestId) continue;
+                if (olderPending.timeoutId) clearTimeout(olderPending.timeoutId);
+                olderPending.superseded = true;
+                pendingLyricAcks.delete(requestId);
+            }
+        };
+
+        try {
+            const responsePromise = TaskbarLyricsAPI.lyrics.lyrics(expected);
+            const response = await Promise.race([
+                responsePromise,
+                new Promise((_, reject) => {
+                    pending.timeoutId = setTimeout(
+                        () => {
+                            pending.timedOut = true;
+                            reject(new Error(`歌词回执超时（${LYRIC_ACK_TIMEOUT}ms）`));
+                        },
+                        LYRIC_ACK_TIMEOUT
+                    );
+                })
+            ]);
+            if (!isCurrentGeneration()) return response;
+            if (response?.status === 204 && !isSongInfo && !isRealLyric) {
+                markAcknowledged();
+                if (!isLatestRequest()) return response;
+                updateDebug("updateLyricAck", {
+                    status: "已忽略",
+                    statusCode: response.status,
+                    detail: "C++ 按歌曲信息保护规则忽略空歌词",
+                    currentLyric: null
+                });
+                return response;
+            }
+            if (!response || response.status !== 200) {
+                throw new Error(`歌词回执状态异常：HTTP ${response?.status ?? "未知"}`);
+            }
+
+            let currentLyric;
+            try {
+                currentLyric = await response.clone().json();
+            } catch {
+                throw new Error("C++ 未返回歌词回执");
+            }
+
+            const echoedBasic = typeof currentLyric?.basic === "string" ? currentLyric.basic : null;
+            const echoedExtra = typeof currentLyric?.extra === "string" ? currentLyric.extra : null;
+            if (
+                echoedBasic !== expected.basic
+                || echoedExtra !== expected.extra
+                || Boolean(currentLyric?.is_song_info) !== isSongInfo
+            ) {
+                throw new Error(
+                    `歌词回执不一致：期望 ${JSON.stringify({ basic: expected.basic, extra: expected.extra })}，`
+                    + `实际 ${JSON.stringify({ basic: echoedBasic, extra: echoedExtra })}`
+                );
+            }
+
+            markAcknowledged();
+            if (!isLatestRequest()) return response;
+            updateDebug("updateLyricAck", {
+                status: "正常",
+                statusCode: response.status,
+                detail: "C++ 已复述当前歌词",
+                currentLyric
+            });
+            return response;
+        } catch (error) {
+            if (!isCurrentGeneration()) return null;
+            // 较早请求只有在自己的窗口真正超时后才触发重连；它的即时错误
+            // 可能只是请求已被短歌词更新接管，不能抢先打断当前歌词。
+            if (!isLatestRequest() && !pending.timedOut) return null;
+            if (lastLyricAckRequestId >= pending.requestId) return null;
+            const detail = error?.message ?? String(error);
+            updateDebug("updateLyricAck", {
+                status: "异常",
+                statusCode: null,
+                detail,
+                currentLyric: null
+            });
+            addLog(`[C++歌词回执] ${detail}，触发重连`, "error");
+            void reconnect();
+            return null;
+        } finally {
+            if (pending.timeoutId) clearTimeout(pending.timeoutId);
+            pendingLyricAcks.delete(pending.requestId);
+            if (isLatestRequest()) latestLyricAck = null;
+        }
     };
 
 
@@ -131,24 +262,6 @@ plugin.onLoad(async () => {
     // 断线重连
     let 正在重连 = false;
     const wait = delay => new Promise(resolve => setTimeout(resolve, delay));
-
-
-    const waitForTaskbarLyricsReady = async (maxAttempts = 20) => {
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            try {
-                const response = await Promise.race([
-                    TaskbarLyricsAPI.ping({}),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("ping timeout")), 1000))
-                ]);
-                if (response.ok) return true;
-            } catch {
-                // C++ 程序尚未完成启动，继续等待
-            }
-
-            await wait(250);
-        }
-        return false;
-    };
 
 
     const getTaskbarLyricsDataPath = async () => {
@@ -243,14 +356,15 @@ plugin.onLoad(async () => {
                 addLog(`[重连] 正在启动 C++ 程序（${attempt}/3）...`, "info");
                 const startCommand = `xcopy /C /D /Y "${pluginPath}\\taskbar-lyrics.exe" "${dataPath}" && "${dataPath}\\taskbar-lyrics.exe" ${this.base.TaskbarLyricsPort}`;
                 const started = await betterncm.app.exec(`cmd /S /C ${startCommand}`, false, false);
-                if (!started) throw new Error("启动命令返回失败");
+                if (!started) {
+                    addLog("[重连] 启动命令未确认执行，将由歌词回执确认服务状态", "warn");
+                }
+                // 不等待额外探测；下一次歌词请求必须在超时前收到 C++ 回执。
+                return;
             } catch (error) {
                 lastError = error;
                 addLog(`[重连] 启动命令失败（${attempt}/3）：${error?.message ?? error}`, "warn");
             }
-
-            // 请求可能在返回失败前已执行，仍需探测服务是否已真正恢复
-            if (await waitForTaskbarLyricsReady(8)) return;
             await wait(500 * attempt);
         }
 
@@ -264,34 +378,22 @@ plugin.onLoad(async () => {
         try {
             currentIndex = 0;
             addLog("[重连] 检测到连接断开，正在重启 C++ 程序...", "error");
+            // 先注销监听，避免旧回调在新进程启动期间继续发送过期歌词。
+            stopGetLyric();
             await restartTaskbarLyricsProcess();
 
             addLog("[重连] C++ 服务已就绪，已从 taskbar-lyrics.ini 加载配置", "success");
-            stopGetLyric();
             startGetLyric();
             addLog("[重连] 重连完成，已重新加载当前歌曲", "success");
         } catch (error) {
             addLog(`[重连] 自动重连失败：${error?.message ?? error}，将继续重试`, "error");
+            if (!listenerRegistered && !listenerRegistrationPending) {
+                startGetLyric();
+            }
         } finally {
             正在重连 = false;
         }
     };
-
-    window.TaskbarLyricsDebugTransport?.setReconnectHandler?.(reconnect);
-
-
-    // 心跳保活
-    setInterval(async () => {
-        try {
-            await Promise.race([
-                TaskbarLyricsAPI.ping({}),
-                new Promise((_, reject) => setTimeout(() => reject(new Error()), 3000))
-            ]);
-        } catch {
-            await reconnect();
-        }
-    }, 5000);
-
 
     // 监视软件内歌词变动
     const watchLyricsChange = async () => {
@@ -334,6 +436,7 @@ plugin.onLoad(async () => {
     const play_load = async () => {
         updateDebug("touchListener", { event: "Load" });
         const loadVersion = ++lyricLoadVersion;
+        invalidateLyricAcks();
         clearLineEndTimer();
         if (pauseDebounceTimer) {
             clearTimeout(pauseDebounceTimer);
@@ -719,8 +822,6 @@ plugin.onLoad(async () => {
 
     // 开始获取歌词
     function startGetLyric() {
-        // 兼容脚本加载顺序，确保日志页的断联模拟能够调用真实重连流程。
-        window.TaskbarLyricsDebugTransport?.setReconnectHandler?.(reconnect);
         const config = pluginConfig.get("lyrics");
         const retrievalMethod = config["retrieval_method"]["value"];
         const methodName = retrievalMethodName(retrievalMethod);
@@ -826,6 +927,7 @@ plugin.onLoad(async () => {
     function stopGetLyric() {
         ++listenerRegistrationToken;
         lyricLoadVersion++;
+        invalidateLyricAcks();
         if (pauseDebounceTimer) {
             clearTimeout(pauseDebounceTimer);
             pauseDebounceTimer = null;

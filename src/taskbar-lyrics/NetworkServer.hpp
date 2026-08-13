@@ -36,7 +36,6 @@ class 网络服务器类
 	void 边距(const httplib::Request&, httplib::Response&);
 	void 屏幕(const httplib::Request&, httplib::Response&);
 	void 过渡动画(const httplib::Request&, httplib::Response&);
-	void ping(const httplib::Request&, httplib::Response&);
 	void 关闭(const httplib::Request&, httplib::Response&);
 
 	void 初始化配置路径();

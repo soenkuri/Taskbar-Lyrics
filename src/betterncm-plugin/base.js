@@ -4,27 +4,21 @@
 plugin.onLoad(async () => {
     const TaskbarLyricsPort = BETTERNCM_API_PORT - 2;
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
-    let simulateDisconnectOnce = false;
-    let reconnectHandler = null;
+    let simulateLyricAckFailureOnce = false;
 
     const TaskbarLyricsFetch = async (path, params) => {
         const body = JSON.stringify(params ?? {});
         const endpoint = `POST /taskbar${path}`;
-        const isHeartbeat = path === "/ping";
 
-        if (isHeartbeat && simulateDisconnectOnce) {
-            simulateDisconnectOnce = false;
-            const error = new Error("调试：模拟 C++ 断联");
-            window.TaskbarLyricsDebug?.updateHeartbeat?.({
-                status: "模拟断联",
+        if (path === "/lyrics/lyrics" && simulateLyricAckFailureOnce) {
+            simulateLyricAckFailureOnce = false;
+            const error = new Error("调试：模拟 C++ 歌词回执超时");
+            window.TaskbarLyricsDebug?.updateLyricAck?.({
+                status: "模拟失败",
                 statusCode: null,
-                detail: "调试工具已触发一次模拟断联"
+                detail: "调试工具已触发一次歌词回执失败"
             });
             throw error;
-        }
-
-        if (!isHeartbeat) {
-            addLog(`[C++请求] 发送 ${endpoint}\n  参数：${body}`, "info");
         }
 
         try {
@@ -38,26 +32,12 @@ plugin.onLoad(async () => {
                     }
                 }
             );
-            if (isHeartbeat) {
-                window.TaskbarLyricsDebug?.updateHeartbeat?.({
-                    status: response.ok ? "正常" : "异常",
-                    statusCode: response.status,
-                    detail: response.ok ? "C++ 服务在线" : "C++ 返回异常状态"
-                });
-            } else {
-                addLog(`[C++响应] ${endpoint} 返回 ${response.status}`, response.ok ? "info" : "warn");
+            if (!response.ok) {
+                addLog(`[C++请求] ${endpoint} 返回异常：HTTP ${response.status}`, "warn");
             }
             return response;
         } catch (error) {
-            if (isHeartbeat) {
-                window.TaskbarLyricsDebug?.updateHeartbeat?.({
-                    status: "断开",
-                    statusCode: null,
-                    detail: error?.message ?? String(error)
-                });
-            } else {
-                addLog(`[C++请求] ${endpoint} 失败\n  参数：${body}\n  原因：${error?.message ?? error}`, "error");
-            }
+            addLog(`[C++请求] ${endpoint} 失败：${error?.message ?? error}`, "error");
             throw error;
         }
     };
@@ -86,30 +66,17 @@ plugin.onLoad(async () => {
         // 过渡动画
         animation: params => TaskbarLyricsFetch("/animation", params),
 
-        // 心跳
-        ping: params => TaskbarLyricsFetch("/ping", params),
-
         // 关闭
         close: params => TaskbarLyricsFetch("/close", params)
     };
 
 
-    // 日志页使用的一次性断联模拟；模拟本身不终止进程，后续会进入真实重连流程。
+    // 日志页使用的一次性歌词回执失败模拟；下一次歌词请求会进入真实重连流程。
     window.TaskbarLyricsDebugTransport = {
-        simulateCppDisconnect: () => {
-            if (simulateDisconnectOnce) return;
-            simulateDisconnectOnce = true;
-            addLog("[调试] 已安排一次 C++ 断联模拟，正在触发现有重连流程", "warn");
-            TaskbarLyricsAPI.ping({}).catch(error => {
-                if (typeof reconnectHandler === "function") {
-                    reconnectHandler(error);
-                } else {
-                    addLog("[调试] 重连处理器尚未就绪，将由下一次心跳触发", "warn");
-                }
-            });
-        },
-        setReconnectHandler: handler => {
-            reconnectHandler = typeof handler === "function" ? handler : null;
+        simulateLyricAckFailure: () => {
+            if (simulateLyricAckFailureOnce) return;
+            simulateLyricAckFailureOnce = true;
+            addLog("[调试] 已安排一次歌词回执失败，将由下一次歌词请求触发重连", "warn");
         }
     };
 
