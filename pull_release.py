@@ -1,11 +1,90 @@
 import os
+import json
 import shutil
 import subprocess
 import time
 
-SOURCE = r"C:\Users\Soenkuri\Downloads\Taskbar-Lyric-dev.plugin"
+REPOSITORY = "soenkuri/Taskbar-Lyrics"
+DOWNLOAD_DIR = r"C:\Users\Soenkuri\Downloads"
+SOURCE = os.path.join(DOWNLOAD_DIR, "Taskbar-Lyric-dev.plugin")
 DEST_DIR = r"C:\betterncm\plugins"
 CLOUDMUSIC = r"C:\Program Files (x86)\NetEase\CloudMusic\cloudmusic.exe"
+
+
+def find_github_cli():
+    """查找 GitHub CLI，兼容未刷新当前进程 PATH 的安装环境。"""
+    candidates = [
+        shutil.which("gh"),
+        r"C:\Program Files\GitHub CLI\gh.exe",
+        r"C:\Program Files (x86)\GitHub CLI\gh.exe",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    raise RuntimeError("找不到 GitHub CLI，请确认 gh.exe 已安装")
+
+
+def download_latest_plugin():
+    """下载仓库最新（包含预发布）release 中的 plugin 资产。"""
+    github_cli = find_github_cli()
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    release_result = subprocess.run(
+        [
+            github_cli,
+            "release",
+            "list",
+            "--repo",
+            REPOSITORY,
+            "--exclude-drafts",
+            "--limit",
+            "1",
+            "--json",
+            "tagName",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if release_result.returncode != 0:
+        raise RuntimeError(
+            f"获取最新 release 失败: {release_result.stderr.strip()}"
+        )
+
+    try:
+        releases = json.loads(release_result.stdout)
+        tag_name = releases[0]["tagName"]
+    except (ValueError, IndexError, KeyError, TypeError) as error:
+        raise RuntimeError("仓库没有可下载的 release") from error
+
+    download_result = subprocess.run(
+        [
+            github_cli,
+            "release",
+            "download",
+            tag_name,
+            "--repo",
+            REPOSITORY,
+            "--pattern",
+            "*.plugin",
+            "--output",
+            SOURCE,
+            "--clobber",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if download_result.returncode != 0:
+        raise RuntimeError(
+            f"下载 release {tag_name} 失败: {download_result.stderr.strip()}"
+        )
+    if not os.path.isfile(SOURCE):
+        raise RuntimeError(f"下载完成但找不到 plugin 文件: {SOURCE}")
+
+    print(f"已下载最新 release {tag_name}: {SOURCE}")
 
 
 def remove_file_with_retry(path, max_attempts=10, initial_delay=0.25):
@@ -24,9 +103,7 @@ def remove_file_with_retry(path, max_attempts=10, initial_delay=0.25):
             print(f"删除 {path} 失败，{delay:.2f} 秒后重试 ({attempt + 1}/{max_attempts})")
             time.sleep(delay)
 
-if not os.path.exists(SOURCE):
-    print(f"错误: 找不到 {SOURCE}")
-    exit(1)
+download_latest_plugin()
 
 # 复制插件文件
 dest = os.path.join(DEST_DIR, os.path.basename(SOURCE))
