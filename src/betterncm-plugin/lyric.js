@@ -288,6 +288,7 @@ plugin.onLoad(async () => {
             ackTimeout,
             superseded: false
         };
+        let responseDelayRecorded = false;
         pendingLyricAcks.set(pending.requestId, pending);
         latestLyricAck = pending;
         const isCurrentGeneration = () => (
@@ -327,6 +328,7 @@ plugin.onLoad(async () => {
             const responseLatencyMs = Math.max(0, getMonotonicTime() - requestStartedAt);
             pending.responseLatencyMs = responseLatencyMs;
             const cumulativeExceeded = recordLyricAckDelay(responseLatencyMs);
+            responseDelayRecorded = true;
             if (cumulativeExceeded && isLatestRequest()) {
                 const detail = `歌词回执累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms，达到 ${LYRIC_ACK_CUMULATIVE_LIMIT}ms`;
                 updateDebug("updateLyricAck", {
@@ -372,10 +374,12 @@ plugin.onLoad(async () => {
                 || echoedExtra !== expected.extra
                 || Boolean(currentLyric?.is_song_info) !== isSongInfo
             ) {
-                throw new Error(
+                const mismatchError = new Error(
                     `歌词回执不一致：期望 ${JSON.stringify({ basic: expected.basic, extra: expected.extra })}，`
                     + `实际 ${JSON.stringify({ basic: echoedBasic, extra: echoedExtra })}`
                 );
+                mismatchError.isLyricAckMismatch = true;
+                throw mismatchError;
             }
 
             markAcknowledged();
@@ -393,37 +397,49 @@ plugin.onLoad(async () => {
             if (!isCurrentGeneration()) return null;
             // 较早请求只有在自己的窗口真正超时后才触发重连；它的即时错误
             // 可能只是请求已被短歌词更新接管，不能抢先打断当前歌词。
+            // 回执内容不一致同样视为本次未收到有效回执，沿用累计超时判定。
             if (!isLatestRequest() && !pending.timedOut) return null;
             if (lastLyricAckRequestId >= pending.requestId) return null;
             const detail = error?.message ?? String(error);
             const elapsedMs = Math.max(0, getMonotonicTime() - requestStartedAt);
-            const timeoutDelayMs = pending.timedOut ? Math.max(elapsedMs, ackTimeout) : null;
+            const isLyricAckMismatch = error?.isLyricAckMismatch === true;
+            const isAckTimeout = pending.timedOut || isLyricAckMismatch;
+            const timeoutDelayMs = pending.timedOut
+                ? Math.max(elapsedMs, ackTimeout)
+                : isLyricAckMismatch
+                    ? elapsedMs
+                    : null;
             const cumulativeExceeded = timeoutDelayMs === null
                 ? true
-                : recordLyricAckDelay(timeoutDelayMs);
+                : responseDelayRecorded
+                    ? cumulativeLyricAckDelayMs >= LYRIC_ACK_CUMULATIVE_LIMIT
+                    : recordLyricAckDelay(timeoutDelayMs);
             const cumulativeDetail = `累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms`;
-            if (pending.timedOut && !cumulativeExceeded) {
+            const timeoutDetail = isLyricAckMismatch
+                ? `${detail}，按回执超时处理`
+                : detail;
+            if (isAckTimeout && !cumulativeExceeded) {
                 updateDebug("updateLyricAck", {
                     status: "延迟累计",
                     statusCode: null,
                     latencyMs: timeoutDelayMs,
                     cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                    detail: `${detail}，${cumulativeDetail}，未达到重启阈值`,
+                    detail: `${timeoutDetail}，${cumulativeDetail}，未达到重启阈值`,
                     currentLyric: null
                 });
-                addLog(`[C++歌词回执] ${detail}，${cumulativeDetail}，继续观察`, "warn");
+                addLog(`[C++歌词回执] ${timeoutDetail}，${cumulativeDetail}，继续观察`, "warn");
                 return null;
             }
             updateDebug("updateLyricAck", {
-                status: pending.timedOut ? "累计超限" : "异常",
+                status: isAckTimeout ? "累计超限" : "异常",
                 statusCode: null,
                 latencyMs: timeoutDelayMs,
                 cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                detail: pending.timedOut ? `${detail}，${cumulativeDetail}` : detail,
+                detail: isAckTimeout ? `${timeoutDetail}，${cumulativeDetail}` : detail,
                 currentLyric: null
             });
             addLog(
-                `[C++歌词回执] ${pending.timedOut ? `${detail}，${cumulativeDetail}` : detail}，重新启动 C++ 程序`,
+                `[C++歌词回执] ${isAckTimeout ? `${timeoutDetail}，${cumulativeDetail}` : detail}，重新启动 C++ 程序`,
                 "error"
             );
             void reconnect();
