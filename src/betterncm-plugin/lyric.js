@@ -44,6 +44,7 @@ plugin.onLoad(async () => {
     let progressCorrectionCount = 0;
     const LYRIC_ACK_TIMEOUT = 3000;
     const LYRIC_ACK_RESET_LATENCY = 50;
+    const LYRIC_ACK_NORMAL_LIMIT = 300;
     const LYRIC_ACK_CUMULATIVE_LIMIT = 3000;
     let lyricAckRequestId = 0;
     let lyricAckGeneration = 0;
@@ -216,6 +217,12 @@ plugin.onLoad(async () => {
     };
 
 
+    const isLyricAckNormalLatency = latencyMs => (
+        Number.isFinite(Number(latencyMs))
+        && Number(latencyMs) < LYRIC_ACK_NORMAL_LIMIT
+    );
+
+
     const retrievalMethodName = value => ({
         0: "软件内词栏",
         1: "LibLyric",
@@ -347,7 +354,9 @@ plugin.onLoad(async () => {
                 markAcknowledged();
                 if (!isLatestRequest()) return response;
                 updateDebug("updateLyricAck", {
-                    status: cumulativeLyricAckDelayMs ? "延迟累计" : "已忽略",
+                    status: isLyricAckNormalLatency(responseLatencyMs)
+                        ? "正常"
+                        : cumulativeLyricAckDelayMs ? "延迟累计" : "已忽略",
                     statusCode: response.status,
                     latencyMs: responseLatencyMs,
                     cumulativeDelayMs: cumulativeLyricAckDelayMs,
@@ -385,7 +394,9 @@ plugin.onLoad(async () => {
             markAcknowledged();
             if (!isLatestRequest()) return response;
             updateDebug("updateLyricAck", {
-                status: cumulativeLyricAckDelayMs ? "延迟累计" : "正常",
+                status: isLyricAckNormalLatency(responseLatencyMs)
+                    ? "正常"
+                    : cumulativeLyricAckDelayMs ? "延迟累计" : "正常",
                 statusCode: response.status,
                 latencyMs: responseLatencyMs,
                 cumulativeDelayMs: cumulativeLyricAckDelayMs,
@@ -420,7 +431,7 @@ plugin.onLoad(async () => {
                 : detail;
             if (isAckTimeout && !cumulativeExceeded) {
                 updateDebug("updateLyricAck", {
-                    status: "延迟累计",
+                    status: isLyricAckNormalLatency(timeoutDelayMs) ? "正常" : "延迟累计",
                     statusCode: null,
                     latencyMs: timeoutDelayMs,
                     cumulativeDelayMs: cumulativeLyricAckDelayMs,
