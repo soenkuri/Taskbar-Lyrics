@@ -43,15 +43,14 @@ plugin.onLoad(async () => {
     let progressCorrectionReason = "等待播放进度";
     let progressCorrectionCount = 0;
     const LYRIC_ACK_TIMEOUT = 3000;
-    const LYRIC_ACK_RESET_LATENCY = 300;
     const LYRIC_ACK_NORMAL_LIMIT = 300;
-    const LYRIC_ACK_CUMULATIVE_LIMIT = 3000;
+    const LYRIC_ACK_CONSECUTIVE_LIMIT = 5;
     let lyricAckRequestId = 0;
     let lyricAckGeneration = 0;
     let latestLyricAck = null;
     const pendingLyricAcks = new Map();
     let lastLyricAckRequestId = 0;
-    let cumulativeLyricAckDelayMs = 0;
+    let consecutiveLyricAckDelayCount = 0;
 
 
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
@@ -193,33 +192,33 @@ plugin.onLoad(async () => {
         pendingLyricAcks.clear();
         latestLyricAck = null;
         lastLyricAckRequestId = lyricAckRequestId;
-        cumulativeLyricAckDelayMs = 0;
+        consecutiveLyricAckDelayCount = 0;
         updateDebug("updateLyricAck", {
             status: "未检测",
             statusCode: null,
             latencyMs: null,
-            cumulativeDelayMs: 0,
+            consecutiveDelayCount: 0,
             detail: "等待 C++ 歌词回执",
             currentLyric: null
         });
     };
 
 
-    const recordLyricAckDelay = latencyMs => {
+    const recordLyricAckLatency = latencyMs => {
         const delay = Number(latencyMs);
         if (!Number.isFinite(delay)) return false;
-        if (delay < LYRIC_ACK_RESET_LATENCY) {
-            cumulativeLyricAckDelayMs = 0;
+        if (delay <= LYRIC_ACK_NORMAL_LIMIT) {
+            consecutiveLyricAckDelayCount = 0;
             return false;
         }
-        cumulativeLyricAckDelayMs += delay;
-        return cumulativeLyricAckDelayMs >= LYRIC_ACK_CUMULATIVE_LIMIT;
+        consecutiveLyricAckDelayCount++;
+        return consecutiveLyricAckDelayCount >= LYRIC_ACK_CONSECUTIVE_LIMIT;
     };
 
 
     const isLyricAckNormalLatency = latencyMs => (
         Number.isFinite(Number(latencyMs))
-        && Number(latencyMs) < LYRIC_ACK_NORMAL_LIMIT
+        && Number(latencyMs) <= LYRIC_ACK_NORMAL_LIMIT
     );
 
 
@@ -334,15 +333,15 @@ plugin.onLoad(async () => {
             if (!isCurrentGeneration()) return response;
             const responseLatencyMs = Math.max(0, getMonotonicTime() - requestStartedAt);
             pending.responseLatencyMs = responseLatencyMs;
-            const cumulativeExceeded = recordLyricAckDelay(responseLatencyMs);
+            const consecutiveExceeded = recordLyricAckLatency(responseLatencyMs);
             responseDelayRecorded = true;
-            if (cumulativeExceeded && isLatestRequest()) {
-                const detail = `歌词回执累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms，达到 ${LYRIC_ACK_CUMULATIVE_LIMIT}ms`;
+            if (consecutiveExceeded && isLatestRequest()) {
+                const detail = `连续 ${consecutiveLyricAckDelayCount} 次歌词回执延迟超过 ${LYRIC_ACK_NORMAL_LIMIT}ms，达到 ${LYRIC_ACK_CONSECUTIVE_LIMIT} 次`;
                 updateDebug("updateLyricAck", {
-                    status: "累计超限",
+                    status: "连续超限",
                     statusCode: Number.isInteger(response?.status) ? response.status : null,
                     latencyMs: responseLatencyMs,
-                    cumulativeDelayMs: cumulativeLyricAckDelayMs,
+                    consecutiveDelayCount: consecutiveLyricAckDelayCount,
                     detail,
                     currentLyric: null
                 });
@@ -356,11 +355,11 @@ plugin.onLoad(async () => {
                 updateDebug("updateLyricAck", {
                     status: isLyricAckNormalLatency(responseLatencyMs)
                         ? "正常"
-                        : cumulativeLyricAckDelayMs ? "延迟累计" : "已忽略",
+                        : consecutiveLyricAckDelayCount ? "连续超限" : "已忽略",
                     statusCode: response.status,
                     latencyMs: responseLatencyMs,
-                    cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                    detail: `C++ 按歌曲信息保护规则忽略空歌词${cumulativeLyricAckDelayMs ? `，累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms` : ""}`,
+                    consecutiveDelayCount: consecutiveLyricAckDelayCount,
+                    detail: `C++ 按歌曲信息保护规则忽略空歌词${consecutiveLyricAckDelayCount ? `，连续超限 ${consecutiveLyricAckDelayCount} 次` : ""}`,
                     currentLyric: null
                 });
                 return response;
@@ -396,11 +395,11 @@ plugin.onLoad(async () => {
             updateDebug("updateLyricAck", {
                 status: isLyricAckNormalLatency(responseLatencyMs)
                     ? "正常"
-                    : cumulativeLyricAckDelayMs ? "延迟累计" : "正常",
+                    : consecutiveLyricAckDelayCount ? "连续超限" : "正常",
                 statusCode: response.status,
                 latencyMs: responseLatencyMs,
-                cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                detail: `C++ 已复述当前歌词${cumulativeLyricAckDelayMs ? `，累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms` : ""}`,
+                consecutiveDelayCount: consecutiveLyricAckDelayCount,
+                detail: `C++ 已复述当前歌词${consecutiveLyricAckDelayCount ? `，连续超限 ${consecutiveLyricAckDelayCount} 次` : ""}`,
                 currentLyric
             });
             return response;
@@ -408,7 +407,7 @@ plugin.onLoad(async () => {
             if (!isCurrentGeneration()) return null;
             // 较早请求只有在自己的窗口真正超时后才触发重连；它的即时错误
             // 可能只是请求已被短歌词更新接管，不能抢先打断当前歌词。
-            // 回执内容不一致同样视为本次未收到有效回执，沿用累计超时判定。
+            // 回执内容不一致同样视为本次未收到有效回执，沿用连续超限判定。
             if (!isLatestRequest() && !pending.timedOut) return null;
             if (lastLyricAckRequestId >= pending.requestId) return null;
             const detail = error?.message ?? String(error);
@@ -420,37 +419,37 @@ plugin.onLoad(async () => {
                 : isLyricAckMismatch
                     ? elapsedMs
                     : null;
-            const cumulativeExceeded = timeoutDelayMs === null
+            const consecutiveExceeded = timeoutDelayMs === null
                 ? true
                 : responseDelayRecorded
-                    ? cumulativeLyricAckDelayMs >= LYRIC_ACK_CUMULATIVE_LIMIT
-                    : recordLyricAckDelay(timeoutDelayMs);
-            const cumulativeDetail = `累计延迟 ${Math.round(cumulativeLyricAckDelayMs)}ms`;
+                    ? consecutiveLyricAckDelayCount >= LYRIC_ACK_CONSECUTIVE_LIMIT
+                    : recordLyricAckLatency(timeoutDelayMs);
+            const consecutiveDetail = `连续超限 ${consecutiveLyricAckDelayCount}/${LYRIC_ACK_CONSECUTIVE_LIMIT} 次`;
             const timeoutDetail = isLyricAckMismatch
                 ? `${detail}，按回执超时处理`
                 : detail;
-            if (isAckTimeout && !cumulativeExceeded) {
+            if (isAckTimeout && !consecutiveExceeded) {
                 updateDebug("updateLyricAck", {
-                    status: isLyricAckNormalLatency(timeoutDelayMs) ? "正常" : "延迟累计",
+                    status: isLyricAckNormalLatency(timeoutDelayMs) ? "正常" : "连续超限",
                     statusCode: null,
                     latencyMs: timeoutDelayMs,
-                    cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                    detail: `${timeoutDetail}，${cumulativeDetail}，未达到重启阈值`,
+                    consecutiveDelayCount: consecutiveLyricAckDelayCount,
+                    detail: `${timeoutDetail}，${consecutiveDetail}，未达到重启阈值`,
                     currentLyric: null
                 });
-                addLog(`[C++歌词回执] ${timeoutDetail}，${cumulativeDetail}，继续观察`, "warn");
+                addLog(`[C++歌词回执] ${timeoutDetail}，${consecutiveDetail}，继续观察`, "warn");
                 return null;
             }
             updateDebug("updateLyricAck", {
-                status: isAckTimeout ? "累计超限" : "异常",
+                status: isAckTimeout ? "连续超限" : "异常",
                 statusCode: null,
                 latencyMs: timeoutDelayMs,
-                cumulativeDelayMs: cumulativeLyricAckDelayMs,
-                detail: isAckTimeout ? `${timeoutDetail}，${cumulativeDetail}` : detail,
+                consecutiveDelayCount: consecutiveLyricAckDelayCount,
+                detail: isAckTimeout ? `${timeoutDetail}，${consecutiveDetail}` : detail,
                 currentLyric: null
             });
             addLog(
-                `[C++歌词回执] ${isAckTimeout ? `${timeoutDetail}，${cumulativeDetail}` : detail}，重新启动 C++ 程序`,
+                `[C++歌词回执] ${isAckTimeout ? `${timeoutDetail}，${consecutiveDetail}` : detail}，重新启动 C++ 程序`,
                 "error"
             );
             void reconnect();
