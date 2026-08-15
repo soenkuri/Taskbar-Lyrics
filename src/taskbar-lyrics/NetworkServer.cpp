@@ -1,6 +1,7 @@
 ﻿#include "NetworkServer.hpp"
 #include "CreateWindow.hpp"
 #include "nlohmann/json.hpp"
+#include <chrono>
 #include <d2d1.h>
 #include <array>
 #include <iomanip>
@@ -322,7 +323,7 @@ void 网络服务器类::歌词(
     httplib::Response& res
 ) {
     auto json = nlohmann::json::parse(req.body);
-    std::lock_guard<std::mutex> 锁(this->配置互斥);
+    std::unique_lock<std::mutex> 锁(this->配置互斥);
 
     auto& 窗口 = this->任务栏窗口->呈现窗口;
     const bool 是歌曲信息 = json.value("is_song_info", false);
@@ -344,19 +345,39 @@ void 网络服务器类::歌词(
     // 先保存旧歌词（用于交叉淡入淡出）
     窗口->旧主歌词 = 窗口->主歌词;
     窗口->旧副歌词 = 窗口->副歌词;
+    窗口->旧正在显示歌曲信息 = 窗口->正在显示歌曲信息;
 
     // 再更新为新歌词
     窗口->主歌词 = 新主歌词;
     窗口->副歌词 = 新副歌词;
     窗口->正在显示歌曲信息 = 是歌曲信息;
 
-    // 同步等待主窗口线程接收本次歌词更新，再返回回执；否则插件可能在
-    // C++ 尚未应用更新时就收到 200，无法识别渲染线程卡住的情况。
+    // 等待渲染线程真正绘制到目标歌词后再返回回执。仅启动动画并不代表
+    // 任务栏已经显示新歌词，尤其是非交叉淡入淡出的淡出/间隔阶段。
     SendMessage(this->任务栏窗口->窗口句柄, WM_FADE_START, NULL, NULL);
+    锁.unlock();
+
+    std::wstring 显示主歌词;
+    std::wstring 显示副歌词;
+    bool 显示歌曲信息 = false;
+    if (!窗口->等待当前显示(
+        新主歌词,
+        新副歌词,
+        是歌曲信息,
+        std::chrono::milliseconds(3500),
+        显示主歌词,
+        显示副歌词,
+        显示歌曲信息
+    ))
+    {
+        res.status = 504;
+        return;
+    }
+
     nlohmann::json 回执 = {
-        {"basic", this->字符转换.to_bytes(窗口->主歌词)},
-        {"extra", this->字符转换.to_bytes(窗口->副歌词)},
-        {"is_song_info", 窗口->正在显示歌曲信息}
+        {"basic", this->字符转换.to_bytes(显示主歌词)},
+        {"extra", this->字符转换.to_bytes(显示副歌词)},
+        {"is_song_info", 显示歌曲信息}
     };
     res.set_content(回执.dump(), "application/json; charset=UTF-8");
     res.status = 200;

@@ -82,6 +82,31 @@
 }
 
 
+bool 呈现窗口类::等待当前显示(
+    const std::wstring& 目标主歌词,
+    const std::wstring& 目标副歌词,
+    bool 目标歌曲信息,
+    std::chrono::milliseconds 超时,
+    std::wstring& 显示主歌词,
+    std::wstring& 显示副歌词,
+    bool& 显示歌曲信息
+) {
+    std::unique_lock<std::mutex> 锁(this->显示状态互斥);
+    const bool 已显示 = this->显示状态条件.wait_for(锁, 超时, [&] {
+        return this->当前显示主歌词 == 目标主歌词
+            && this->当前显示副歌词 == 目标副歌词
+            && this->当前显示歌曲信息 == 目标歌曲信息;
+    });
+    if (已显示)
+    {
+        显示主歌词 = this->当前显示主歌词;
+        显示副歌词 = this->当前显示副歌词;
+        显示歌曲信息 = this->当前显示歌曲信息;
+    }
+    return 已显示;
+}
+
+
 void 呈现窗口类::更新窗口()
 {
     GetWindowRect(this->任务栏_句柄, &this->任务栏_矩形);
@@ -214,6 +239,36 @@ void 呈现窗口类::绘制窗口(
     POINT 来源位置 = { 0, 0 };
 
     UpdateLayeredWindow(*this->窗口句柄, hdc, &目标位置, &大小, memDC, &来源位置, 0, &blend, ULW_ALPHA);
+
+    // 只有当前歌词真正参与了本次可见绘制，才向等待回执的请求报告已显示。
+    // 非交叉模式的淡出阶段只绘制旧歌词，因此继续报告旧内容，避免 HTTP
+    // 回执先于任务栏上的实际内容更新。
+    const bool 当前歌词已绘制 = this->交叉淡入淡出 || !this->淡出定时器ID;
+    const bool 当前歌词可见 = 当前歌词已绘制
+        && (this->淡入不透明度 > 0.0f
+            || ((this->主歌词.empty() && this->副歌词.empty()) && !this->淡出定时器ID));
+    std::wstring 已显示主歌词;
+    std::wstring 已显示副歌词;
+    bool 已显示歌曲信息 = false;
+    if (当前歌词可见)
+    {
+        已显示主歌词 = this->主歌词;
+        已显示副歌词 = this->副歌词;
+        已显示歌曲信息 = this->正在显示歌曲信息;
+    }
+    else if (this->淡出定时器ID)
+    {
+        已显示主歌词 = this->旧主歌词;
+        已显示副歌词 = this->旧副歌词;
+        已显示歌曲信息 = this->旧正在显示歌曲信息;
+    }
+    {
+        std::lock_guard<std::mutex> 锁(this->显示状态互斥);
+        this->当前显示主歌词 = 已显示主歌词;
+        this->当前显示副歌词 = 已显示副歌词;
+        this->当前显示歌曲信息 = 已显示歌曲信息;
+    }
+    this->显示状态条件.notify_all();
 
     SelectObject(memDC, oldBitmap);
     DeleteObject(memBitmap);

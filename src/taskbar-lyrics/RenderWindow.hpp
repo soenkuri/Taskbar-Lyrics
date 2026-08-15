@@ -1,8 +1,11 @@
 ﻿#pragma once
 
 #include <Windows.h>
+#include <chrono>
+#include <condition_variable>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <mutex>
 #include <string>
 
 
@@ -56,6 +59,12 @@ class 呈现窗口类
     IDWriteTextLayout* DWrite主歌词文本布局 = nullptr;
     IDWriteTextFormat* DWrite副歌词文本格式 = nullptr;
     IDWriteTextLayout* DWrite副歌词文本布局 = nullptr;
+
+    std::wstring 当前显示主歌词 = L"Taskbar Lyrics Ready";
+    std::wstring 当前显示副歌词 = L"Waiting for lyrics...";
+    bool 当前显示歌曲信息 = false;
+    std::mutex 显示状态互斥;
+    std::condition_variable 显示状态条件;
 
 
     public:
@@ -112,12 +121,22 @@ class 呈现窗口类
     bool 正在显示歌曲信息 = false;
     std::wstring 旧主歌词;
     std::wstring 旧副歌词;
+    bool 旧正在显示歌曲信息 = false;
 
 
 	public:
     void 更新窗口();
     void 开始淡入动画();
     void 启动淡入();
+    bool 等待当前显示(
+        const std::wstring&,
+        const std::wstring&,
+        bool,
+        std::chrono::milliseconds,
+        std::wstring&,
+        std::wstring&,
+        bool&
+    );
 
 
     private:
