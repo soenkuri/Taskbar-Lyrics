@@ -16,7 +16,11 @@ plugin.onLoad(async () => {
     let hasDisplayedRealLyric = false;
     let interludeSent = false;
     let isPaused = false;
-    let pauseDebounceTimer = null;
+    let lastProgressWallTime = null;
+    let pauseObserving = false;
+    let pauseObserveCount = 0;
+    let pauseObserveStart = null;
+    let pauseProgressAtStart = null;
     let lineEndTimer = null;
     let lineEndTimerIndex = null;
     let hideDebounceTimer = null;
@@ -34,6 +38,13 @@ plugin.onLoad(async () => {
     const PROGRESS_MAX_CORRECTION = 3;
     const PROGRESS_BACKWARD_REANCHOR_THRESHOLD = 0.25;
     const PROGRESS_START_EPSILON = 0.01;
+    // 暂停确认采用综合判定：连续观测次数与持续延迟时间同时达标才确认暂停；
+    // 进度明显前进（真实在播放）会立即取消观测，单次瞬时事件无法触发清空
+    const PAUSE_OBSERVE_INTERVAL = 200;
+    const PAUSE_CONFIRM_COUNT = 3;
+    const PAUSE_CONFIRM_DELAY = 500;
+    const PAUSE_PROGRESS_SILENCE = 1500;
+    const PAUSE_PROGRESS_ADVANCE_EPSILON = 0.05;
     let lastReportedProgress = null;
     let lastProgressTimestamp = null;
     let correctedProgress = null;
@@ -672,10 +683,8 @@ plugin.onLoad(async () => {
         const loadVersion = ++lyricLoadVersion;
         invalidateLyricAcks();
         clearLineEndTimer();
-        if (pauseDebounceTimer) {
-            clearTimeout(pauseDebounceTimer);
-            pauseDebounceTimer = null;
-        }
+        clearPauseObservation();
+        lastProgressWallTime = null;
         parsedLyric = null;
         currentIndex = 0;
         lastProgressTime = 0;
@@ -977,6 +986,67 @@ plugin.onLoad(async () => {
     }
 
 
+    // 暂停确认：进度静默或 PlayState 暂停信号进入观测，次数与延迟同时达标才确认
+    const clearPauseObservation = () => {
+        pauseObserving = false;
+        pauseObserveCount = 0;
+        pauseObserveStart = null;
+        pauseProgressAtStart = null;
+    };
+
+
+    const beginPauseObservation = () => {
+        if (pauseObserving) return;
+        pauseObserving = true;
+        pauseObserveCount = 0;
+        pauseObserveStart = getMonotonicTime();
+        pauseProgressAtStart = lastReportedProgress;
+    };
+
+
+    const confirmPaused = (observedCount, observedElapsed) => {
+        if (isPaused) return;
+        isPaused = true;
+        interludeSent = false;
+        clearLineEndTimer();
+        if (!hasCurrentSongProgress || !hasDisplayedRealLyric) return;
+        addLog(`[播放状态] 暂停已确认（观测 ${observedCount} 次 / 持续 ${observedElapsed}ms），发送空歌词`, "info");
+        sendLyrics({ "basic": "", "extra": "" });
+    };
+
+
+    // 综合观测循环：每 200ms 检查一次，兼顾连续观测次数与持续延迟时间
+    setInterval(() => {
+        if (isPaused || !hasCurrentSongProgress) return;
+        const now = getMonotonicTime();
+
+        // 播放中进度静默超过阈值，视为暂停候选进入观测（PlayState 不可靠时的兜底）
+        const silence = lastProgressWallTime === null ? 0 : now - lastProgressWallTime;
+        if (!pauseObserving) {
+            if (silence > PAUSE_PROGRESS_SILENCE) beginPauseObservation();
+            return;
+        }
+
+        // 进度明显前进说明实际在播放，取消本次观测
+        const progressAdvanced = pauseProgressAtStart !== null
+            && lastReportedProgress !== null
+            && lastReportedProgress > pauseProgressAtStart + PAUSE_PROGRESS_ADVANCE_EPSILON;
+        if (progressAdvanced) {
+            clearPauseObservation();
+            return;
+        }
+
+        pauseObserveCount++;
+        const elapsed = now - pauseObserveStart;
+        if (pauseObserveCount >= PAUSE_CONFIRM_COUNT && elapsed >= PAUSE_CONFIRM_DELAY) {
+            const observedCount = pauseObserveCount;
+            const observedElapsed = Math.round(elapsed);
+            clearPauseObservation();
+            confirmPaused(observedCount, observedElapsed);
+        }
+    }, PAUSE_OBSERVE_INTERVAL);
+
+
     // 音乐进度发生变化时
     const play_progress = async (_, time) => {
         updateDebug("touchListener", { event: "PlayProgress" });
@@ -999,6 +1069,22 @@ plugin.onLoad(async () => {
             correctionCount: progressCorrectionCount
         });
         if (correctedTime === null) return;
+
+        // 进度恢复前进说明已继续播放：取消暂停观测；已确认暂停则立即补发歌词
+        const progressAdvanced = pauseProgressAtStart !== null
+            && lastReportedProgress !== null
+            && lastReportedProgress > pauseProgressAtStart + PAUSE_PROGRESS_ADVANCE_EPSILON;
+        if (pauseObserving && progressAdvanced) clearPauseObservation();
+        if (isPaused) {
+            isPaused = false;
+            clearLineEndTimer();
+            if (hasCurrentSongProgress) {
+                addLog("[播放状态] 进度恢复，立即补发当前歌词", "info");
+                sendCurrentLyric(correctedTime, true);
+            }
+        }
+        lastProgressWallTime = getMonotonicTime();
+
         lastProgressTime = correctedTime;
         hasCurrentSongProgress = true;
         sendCurrentLyric(correctedTime, false);
@@ -1006,7 +1092,7 @@ plugin.onLoad(async () => {
     }
 
 
-    // 播放状态变化：暂停发空歌词，恢复立即补发当前歌词
+    // 播放状态变化：暂停信号进入综合观测，恢复播放立即补发当前歌词
     const play_state = async (_, state) => {
         updateDebug("touchListener", { event: "PlayState" });
         let playing;
@@ -1041,13 +1127,11 @@ plugin.onLoad(async () => {
         }
 
         if (playing) {
-            // 恢复播放：若暂停防抖还没触发就取消，避免恢复瞬间先清空再补发的闪断
-            if (pauseDebounceTimer) {
-                clearTimeout(pauseDebounceTimer);
-                pauseDebounceTimer = null;
-            }
+            // 播放信号：立即取消暂停观测；已确认暂停则马上补发
+            clearPauseObservation();
             if (isPaused) {
                 isPaused = false;
+                clearLineEndTimer();
                 if (hasCurrentSongProgress) {
                     addLog("[播放状态] 恢复播放，立即补发当前歌词", "info");
                     sendCurrentLyric(lastProgressTime, true);
@@ -1057,18 +1141,8 @@ plugin.onLoad(async () => {
                 scheduleLineEndHide(lastProgressTime);
             }
         } else {
-            // 暂停：防抖 500ms，过滤恢复瞬间可能出现的瞬时暂停事件
-            clearLineEndTimer();
-            if (pauseDebounceTimer) clearTimeout(pauseDebounceTimer);
-            pauseDebounceTimer = setTimeout(() => {
-                pauseDebounceTimer = null;
-                if (isPaused) return;
-                isPaused = true;
-                interludeSent = false;
-                if (!hasCurrentSongProgress || !hasDisplayedRealLyric) return;
-                addLog("[播放状态] 暂停播放，发送空歌词", "info");
-                sendLyrics({ "basic": "", "extra": "" });
-            }, 500);
+            // 暂停信号：进入观测，次数与延迟同时达标才确认，避免瞬时事件误清空
+            beginPauseObservation();
         }
     }
 
@@ -1182,10 +1256,8 @@ plugin.onLoad(async () => {
         ++listenerRegistrationToken;
         lyricLoadVersion++;
         invalidateLyricAcks();
-        if (pauseDebounceTimer) {
-            clearTimeout(pauseDebounceTimer);
-            pauseDebounceTimer = null;
-        }
+        clearPauseObservation();
+        lastProgressWallTime = null;
         clearLineEndTimer();
         parsedLyric = null;
         lastProgressTime = 0;
