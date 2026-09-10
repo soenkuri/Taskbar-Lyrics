@@ -45,6 +45,8 @@ plugin.onLoad(async () => {
     const LYRIC_ACK_TIMEOUT = 3000;
     const LYRIC_ACK_NORMAL_LIMIT = 300;
     const LYRIC_ACK_CONSECUTIVE_LIMIT = 5;
+    // 距下一句不足此时长的歌词直接跳过，避免快速切换时闪动
+    const MIN_LYRIC_DISPLAY = 750;
     let lyricAckRequestId = 0;
     let lyricAckGeneration = 0;
     let latestLyricAck = null;
@@ -882,6 +884,23 @@ plugin.onLoad(async () => {
                     });
                     currentIndex = nextIndex;
                     interludeSent = false;
+                    return;
+                }
+            }
+
+            // 显示时间过短的歌词跳过发送，保持上一句画面，避免快速闪动
+            if (isRealLyric) {
+                const nextLyric = parsedLyric[nextIndex];
+                const displayDuration = nextLyric ? nextLyric.time - currentLyric.time : Infinity;
+                if (displayDuration < MIN_LYRIC_DISPLAY) {
+                    reportLyricMatch({
+                        progress,
+                        adjustedProgress,
+                        nextIndex,
+                        currentLyric,
+                        detail: `显示时间仅 ${Math.round(displayDuration)}ms，跳过发送`
+                    });
+                    currentIndex = nextIndex;
                     return;
                 }
             }
