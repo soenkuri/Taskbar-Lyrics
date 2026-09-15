@@ -47,6 +47,9 @@ plugin.onLoad(async () => {
     const LYRIC_ACK_CONSECUTIVE_LIMIT = 5;
     // 距下一句不足此时长的歌词直接跳过，避免快速切换时闪动
     const MIN_LYRIC_DISPLAY = 750;
+    // 心跳：每 5 秒确认一次 C++ 是否响应，3 秒无响应视为异常
+    const HEARTBEAT_INTERVAL = 5000;
+    const HEARTBEAT_TIMEOUT = 3000;
     let lyricAckRequestId = 0;
     let lyricAckGeneration = 0;
     let latestLyricAck = null;
@@ -585,6 +588,7 @@ plugin.onLoad(async () => {
                     `[C++启动] C++ 报告：${replaced ? "已替换旧实例" : "正常启动"}（PID ${status?.pid ?? "未知"}）`,
                     replaced ? "warn" : "success"
                 );
+                startHeartbeat();
                 return status;
             } catch (error) {
                 lastError = error;
@@ -630,6 +634,35 @@ plugin.onLoad(async () => {
             正在重连 = false;
         }
     };
+
+
+    // 心跳保活：C++ 不再响应（例如唤醒后卡死）时立即重启；
+    // 连续 5 次回执超限的重启仍作为兜底
+    let heartbeatTimer = null;
+    const startHeartbeat = () => {
+        if (heartbeatTimer) return;
+        heartbeatTimer = setInterval(async () => {
+            if (正在重连) return;
+            try {
+                const response = await Promise.race([
+                    TaskbarLyricsAPI.status({}),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("心跳超时")), HEARTBEAT_TIMEOUT))
+                ]);
+                if (!response?.ok) throw new Error(`HTTP ${response?.status ?? "未知"}`);
+            } catch (error) {
+                if (正在重连) return;
+                addLog(`[心跳] C++ 无响应（${error?.message ?? error}），立即重启`, "error");
+                void reconnect();
+            }
+        }, HEARTBEAT_INTERVAL);
+    };
+
+    const stopHeartbeat = () => {
+        if (!heartbeatTimer) return;
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    };
+
 
     // 监视软件内歌词变动
     const watchLyricsChange = async () => {
@@ -1268,6 +1301,7 @@ plugin.onLoad(async () => {
     this.lyric = {
         startGetLyric,
         stopGetLyric,
-        startTaskbarLyricsProcess
+        startTaskbarLyricsProcess,
+        stopHeartbeat
     }
 });

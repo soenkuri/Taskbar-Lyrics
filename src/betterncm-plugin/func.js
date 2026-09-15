@@ -12,7 +12,8 @@ plugin.onLoad(async () => {
     const {
         startGetLyric,
         stopGetLyric,
-        startTaskbarLyricsProcess
+        startTaskbarLyricsProcess,
+        stopHeartbeat
     } = { ...this.lyric };
 
 
@@ -41,6 +42,7 @@ plugin.onLoad(async () => {
     // 关闭任务栏歌词软件
     const TaskbarLyricsClose = async () => {
         addLog("[生命周期] 页面卸载，正在关闭 C++ 程序...", "warn");
+        stopHeartbeat();
         TaskbarLyricsAPI.close({});
         stopGetLyric();
     };

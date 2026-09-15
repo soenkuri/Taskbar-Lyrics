@@ -1,21 +1,6 @@
 ﻿#include "CreateWindow.hpp"
 
 
-namespace
-{
-// 墙钟毫秒：休眠期间不会停走，用来和单调时钟对比检测睡眠唤醒
-ULONGLONG 墙钟毫秒()
-{
-    FILETIME 文件时间 = {};
-    GetSystemTimeAsFileTime(&文件时间);
-    ULARGE_INTEGER 数值 = {};
-    数值.LowPart = 文件时间.dwLowDateTime;
-    数值.HighPart = 文件时间.dwHighDateTime;
-    return 数值.QuadPart / 10000ULL;
-}
-}
-
-
 任务栏窗口类* 任务栏窗口类::任务栏窗口 = nullptr;
 
 
@@ -97,22 +82,10 @@ void 任务栏窗口类::创建窗口(
 
 void 任务栏窗口类::剩余宽度检测()
 {
-    auto 线程函数 = [&, 上次单调 = GetTickCount64(), 上次墙钟 = 墙钟毫秒()] () mutable {
+    auto 线程函数 = [&] () {
         while (true)
         {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-
-            // 睡眠唤醒会让两个时钟至少一方出现明显跳变；唤醒后分层窗口与
-            // DWM 的合成关系可能失效，系统合成会持续占用资源，需要像设置页
-            // “立即应用”那样重新挂载到任务栏并重绘才能恢复
-            const ULONGLONG 当前单调 = GetTickCount64();
-            const ULONGLONG 当前墙钟 = 墙钟毫秒();
-            if (当前单调 - 上次单调 > 3000 || 当前墙钟 - 上次墙钟 > 3000)
-            {
-                this->睡眠唤醒恢复();
-            }
-            上次单调 = 当前单调;
-            上次墙钟 = 当前墙钟;
 
             RECT 任务栏_矩形;
             RECT 开始按钮_矩形;
@@ -156,20 +129,6 @@ void 任务栏窗口类::剩余宽度检测()
     };
 
     this->剩余宽度检测_线程 = new std::thread(线程函数);
-}
-
-
-// 唤醒后分层窗口与 DWM 的合成连接可能失效，持续占用系统合成资源；
-// 重新挂载窗口并重绘可重建连接，效果等同于在设置页执行一次“立即应用”
-void 任务栏窗口类::睡眠唤醒恢复()
-{
-    HWND 任务栏句柄 = FindWindow(this->呈现窗口->任务栏窗口类名.c_str(), NULL);
-    if (任务栏句柄 != nullptr)
-    {
-        SetParent(this->窗口句柄, nullptr);
-        SetParent(this->窗口句柄, 任务栏句柄);
-    }
-    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
 }
 
 

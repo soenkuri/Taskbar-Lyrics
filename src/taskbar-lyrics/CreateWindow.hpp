@@ -29,7 +29,6 @@ class 任务栏窗口类
     HKEY 注册表句柄 = nullptr;
     std::thread* 监听注册表_线程 = nullptr;
     void 监听注册表();
-    void 睡眠唤醒恢复();
 
 
     private:
