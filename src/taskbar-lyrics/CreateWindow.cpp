@@ -87,6 +87,24 @@ void 任务栏窗口类::剩余宽度检测()
         {
             std::this_thread::sleep_for(std::chrono::seconds(1));
 
+            // 窗口脱离任务栏（例如系统重建任务栏时把这种 popup 弹回桌面）后，
+            // 坐标基准从“相对任务栏”变成“相对屏幕”，窗口会跑到屏幕顶端，
+            // 并且失去任务栏的合成上下文而发糊；发现脱离就重新查找句柄挂回去
+            if (GetAncestor(this->窗口句柄, GA_PARENT) != this->呈现窗口->任务栏_句柄)
+            {
+                HWND 任务栏句柄 = FindWindow(this->呈现窗口->任务栏窗口类名.c_str(), NULL);
+                if (任务栏句柄 != nullptr)
+                {
+                    this->呈现窗口->任务栏_句柄 = 任务栏句柄;
+                    this->呈现窗口->通知区域_句柄 = FindWindowEx(任务栏句柄, NULL, L"TrayNotifyWnd", NULL);
+                    this->呈现窗口->开始按钮_句柄 = FindWindowEx(任务栏句柄, NULL, L"Start", NULL);
+                    HWND 最小化区域句柄 = FindWindowEx(任务栏句柄, NULL, L"ReBarWindow32", NULL);
+                    this->呈现窗口->活动区域_句柄 = FindWindowEx(最小化区域句柄, NULL, L"MSTaskSwWClass", NULL);
+                    SetParent(this->窗口句柄, 任务栏句柄);
+                    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
+                }
+            }
+
             RECT 任务栏_矩形;
             RECT 开始按钮_矩形;
             RECT 活动区域_矩形;
