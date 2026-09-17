@@ -14,7 +14,7 @@
     this->注册窗口(实例句柄);
     this->创建窗口(实例句柄, 显示方法);
 
-    this->剩余宽度检测();
+    SetTimer(this->窗口句柄, 任务栏检测定时器, 1000, nullptr);
     this->监听注册表();
 }
 
@@ -23,10 +23,6 @@
 {
     delete this->呈现窗口;
     this->呈现窗口 = nullptr;
-
-    this->剩余宽度检测_线程->detach();
-    delete this->剩余宽度检测_线程;
-    this->剩余宽度检测_线程 = nullptr;
 
     this->监听注册表_线程->detach();
     delete this->监听注册表_线程;
@@ -74,80 +70,50 @@ void 任务栏窗口类::创建窗口(
         NULL
     );
 
-    SetParent(this->窗口句柄, 任务栏_句柄);
+    this->剩余宽度检测();
     ShowWindow(this->窗口句柄, 显示方法);
     PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
 }
 
 
-void 任务栏窗口类::剩余宽度检测()
+void 任务栏窗口类::剩余宽度检测(bool 强制挂载)
 {
-    auto 线程函数 = [&] () {
-        while (true)
-        {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+    // 定时检测和屏幕配置都在窗口线程执行，统一维护挂载关系与布局句柄。
+    auto& 窗口 = this->呈现窗口;
+    HWND 任务栏句柄 = FindWindow(窗口->任务栏窗口类名.c_str(), nullptr);
+    RECT 任务栏矩形 = {};
+    if (!任务栏句柄 || !GetWindowRect(任务栏句柄, &任务栏矩形)) return;
 
-            // 休眠唤醒时系统会重建任务栏，挂在任务栏上的窗口会被弹回桌面：坐标
-            // 基准从“相对任务栏”变成“相对屏幕”，窗口跑到屏幕顶端并发糊。
-            // 这里每秒确认一次挂载关系（GetParent 对 SetParent 过的窗口可靠），
-            // 一旦脱离就重新查找任务栏和子窗口句柄并挂回去
-            if (GetParent(this->窗口句柄) != this->呈现窗口->任务栏_句柄)
-            {
-                HWND 任务栏句柄 = FindWindow(this->呈现窗口->任务栏窗口类名.c_str(), NULL);
-                if (任务栏句柄 != nullptr)
-                {
-                    this->呈现窗口->任务栏_句柄 = 任务栏句柄;
-                    this->呈现窗口->通知区域_句柄 = FindWindowEx(任务栏句柄, NULL, L"TrayNotifyWnd", NULL);
-                    this->呈现窗口->开始按钮_句柄 = FindWindowEx(任务栏句柄, NULL, L"Start", NULL);
-                    HWND 最小化区域句柄 = FindWindowEx(任务栏句柄, NULL, L"ReBarWindow32", NULL);
-                    this->呈现窗口->活动区域_句柄 = FindWindowEx(最小化区域句柄, NULL, L"MSTaskSwWClass", NULL);
-                    SetParent(this->窗口句柄, 任务栏句柄);
-                    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
-                }
-            }
+    const bool 需要挂载 = 强制挂载
+        || GetAncestor(this->窗口句柄, GA_PARENT) != 任务栏句柄;
+    if (需要挂载)
+    {
+        SetParent(this->窗口句柄, 任务栏句柄);
+        // SetParent 的空返回值也可能表示旧父窗口为空，以实际父关系确认结果。
+        if (GetAncestor(this->窗口句柄, GA_PARENT) != 任务栏句柄) return;
+    }
 
-            RECT 任务栏_矩形;
-            RECT 开始按钮_矩形;
-            RECT 活动区域_矩形;
-            RECT 通知区域_矩形;
+    const bool 任务栏已改变 = 窗口->任务栏_句柄 != 任务栏句柄;
+    窗口->任务栏_句柄 = 任务栏句柄;
+    窗口->通知区域_句柄 = FindWindowEx(任务栏句柄, nullptr, L"TrayNotifyWnd", nullptr);
+    窗口->开始按钮_句柄 = FindWindowEx(任务栏句柄, nullptr, L"Start", nullptr);
+    HWND 最小化区域句柄 = FindWindowEx(任务栏句柄, nullptr, L"ReBarWindow32", nullptr);
+    窗口->活动区域_句柄 = 最小化区域句柄
+        ? FindWindowEx(最小化区域句柄, nullptr, L"MSTaskSwWClass", nullptr) : nullptr;
 
-            GetWindowRect(this->呈现窗口->任务栏_句柄, &任务栏_矩形);
-            GetWindowRect(this->呈现窗口->开始按钮_句柄, &开始按钮_矩形);
-            GetWindowRect(this->呈现窗口->活动区域_句柄, &活动区域_矩形);
-            GetWindowRect(this->呈现窗口->通知区域_句柄, &通知区域_矩形);
-
-            // 只有不一样才会刷新
-            if (std::memcmp(&this->呈现窗口->任务栏_矩形, &任务栏_矩形, sizeof(RECT)))
-            {
-                this->呈现窗口->任务栏_矩形 = 任务栏_矩形;
-                PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
-            }
-
-            if (this->呈现窗口->居中对齐)
-            {
-                if (std::memcmp(&this->呈现窗口->开始按钮_矩形, &开始按钮_矩形, sizeof(RECT)))
-                {
-                    this->呈现窗口->开始按钮_矩形 = 开始按钮_矩形;
-                    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
-                }
-            }
-            else
-            {
-                if (std::memcmp(&this->呈现窗口->活动区域_矩形, &活动区域_矩形, sizeof(RECT)))
-                {
-                    this->呈现窗口->活动区域_矩形 = 活动区域_矩形;
-                    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
-                }
-                if (std::memcmp(&this->呈现窗口->通知区域_矩形, &通知区域_矩形, sizeof(RECT))) {
-                    this->呈现窗口->通知区域_矩形 = 通知区域_矩形;
-                    PostMessage(this->窗口句柄, WM_PAINT, NULL, NULL);
-                }
-            }
-
-        }
+    auto 更新矩形 = [](HWND 句柄, RECT& 矩形) {
+        RECT 新矩形 = {};
+        if (!GetWindowRect(句柄, &新矩形)) 新矩形 = {};
+        const bool 已改变 = !EqualRect(&矩形, &新矩形);
+        矩形 = 新矩形;
+        return 已改变;
     };
-
-    this->剩余宽度检测_线程 = new std::thread(线程函数);
+    bool 需要重绘 = 需要挂载 || 任务栏已改变 || !EqualRect(&窗口->任务栏_矩形, &任务栏矩形);
+    窗口->任务栏_矩形 = 任务栏矩形;
+    需要重绘 |= 更新矩形(窗口->通知区域_句柄, 窗口->通知区域_矩形);
+    需要重绘 |= 更新矩形(窗口->开始按钮_句柄, 窗口->开始按钮_矩形);
+    需要重绘 |= 更新矩形(窗口->活动区域_句柄, 窗口->活动区域_矩形);
+    if (需要重绘) PostMessage(this->窗口句柄, WM_PAINT, 0, 0);
 }
 
 
@@ -236,10 +202,17 @@ LRESULT CALLBACK 任务栏窗口类::窗口过程(
 ) {
     switch (消息)
     {
+        case WM_TASKBAR_CONFIG:
+        {
+            auto& 任务栏 = 任务栏窗口类::任务栏窗口;
+            任务栏->呈现窗口->任务栏窗口类名 = reinterpret_cast<const wchar_t*>(长参数);
+            任务栏->剩余宽度检测(true);
+        };
+        break;
+
         case WM_PAINT:
         {
-            // 必须校验更新区域：不校验时系统会在队列空闲时无限合成 WM_PAINT，
-            // 窗口被系统重新挂载/失效（如唤醒后）后会一直满速重绘
+            // 校验系统更新区域，同时保留手工投递 WM_PAINT 的重绘行为。
             PAINTSTRUCT 绘制参数 = {};
             BeginPaint(窗口句柄, &绘制参数);
             任务栏窗口类::任务栏窗口->呈现窗口->更新窗口();
@@ -249,6 +222,11 @@ LRESULT CALLBACK 任务栏窗口类::窗口过程(
 
         case WM_TIMER:
         {
+            if (字参数 == 任务栏检测定时器)
+            {
+                任务栏窗口类::任务栏窗口->剩余宽度检测();
+                break;
+            }
             auto& 窗口 = 任务栏窗口类::任务栏窗口->呈现窗口;
 
             // 缓动曲线函数

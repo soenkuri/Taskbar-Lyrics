@@ -31,17 +31,17 @@ class 呈现窗口类
 
 
     public:
-    HWND 任务栏_句柄;
-    HWND 通知区域_句柄;
-    HWND 开始按钮_句柄;
-    HWND 活动区域_句柄;
+    HWND 任务栏_句柄 = nullptr;
+    HWND 通知区域_句柄 = nullptr;
+    HWND 开始按钮_句柄 = nullptr;
+    HWND 活动区域_句柄 = nullptr;
 
     std::wstring 任务栏窗口类名 = L"Shell_TrayWnd";
 
-    RECT 任务栏_矩形;
-    RECT 通知区域_矩形;
-    RECT 开始按钮_矩形;
-    RECT 活动区域_矩形;
+    RECT 任务栏_矩形 = {};
+    RECT 通知区域_矩形 = {};
+    RECT 开始按钮_矩形 = {};
+    RECT 活动区域_矩形 = {};
 
 
     public:
@@ -141,7 +141,7 @@ class 呈现窗口类
 
     private:
 	void 绘制窗口(long, long, long, long);
-    void 绘制歌词(HDC&, RECT&);
+    void 绘制歌词(RECT&);
 
 
     private:

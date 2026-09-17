@@ -6,7 +6,7 @@ plugin.onLoad(async () => {
     const addLog = (...args) => window.TaskbarLyricsLog?.(...args);
     let simulateLyricAckFailureOnce = false;
 
-    const TaskbarLyricsFetch = async (path, params) => {
+    const TaskbarLyricsFetch = async (path, params, signal) => {
         const body = JSON.stringify(params ?? {});
         const endpoint = `POST /taskbar${path}`;
 
@@ -26,6 +26,7 @@ plugin.onLoad(async () => {
                 `http://127.0.0.1:${TaskbarLyricsPort}/taskbar${path}`,
                 {
                     method: "POST",
+                    signal,
                     body,
                     headers: {
                         "Content-Type": "application/json"
@@ -67,7 +68,7 @@ plugin.onLoad(async () => {
         animation: params => TaskbarLyricsFetch("/animation", params),
 
         // 关闭
-        close: params => TaskbarLyricsFetch("/close", params),
+        close: (params, signal) => TaskbarLyricsFetch("/close", params, signal),
 
         // 启动状态：由 C++ 报告本次是正常启动还是替换旧实例
         status: params => TaskbarLyricsFetch("/status", params)

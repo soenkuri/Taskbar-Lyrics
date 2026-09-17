@@ -44,7 +44,7 @@ plugin.onLoad(async () => {
     let progressCorrectionCount = 0;
     const LYRIC_ACK_TIMEOUT = 3000;
     const LYRIC_ACK_NORMAL_LIMIT = 300;
-    const LYRIC_ACK_CONSECUTIVE_LIMIT = 5;
+    const LYRIC_ACK_CONSECUTIVE_LIMIT = 3;
     // 距下一句不足此时长的歌词直接跳过，避免快速切换时闪动
     const MIN_LYRIC_DISPLAY = 750;
     // 心跳：每 5 秒确认一次 C++ 是否响应，3 秒无响应视为异常
@@ -277,6 +277,9 @@ plugin.onLoad(async () => {
 
 
     const sendLyrics = async (lyrics, { isSongInfo = false, isRealLyric = false } = {}) => {
+        if (!isTaskbarLyricsCurrent()) return null;
+        if (!isSongInfo && (lyrics.basic || lyrics.extra)
+            && (isPaused || progressPlaybackState === "paused")) return null;
         if (isRealLyric) hasDisplayedRealLyric = true;
         const expected = {
             ...lyrics,
@@ -508,7 +511,19 @@ plugin.onLoad(async () => {
 
     // 断线重连
     let 正在重连 = false;
+    let processEnabled = false;
+    let processGeneration = 0;
     const wait = delay => new Promise(resolve => setTimeout(resolve, delay));
+    const isTaskbarLyricsCurrent = (generation = processGeneration) => (
+        processEnabled && generation === processGeneration
+    );
+    const setTaskbarLyricsEnabled = enabled => {
+        processEnabled = enabled;
+        processGeneration++;
+        stopHeartbeat();
+        stopGetLyric();
+        return processGeneration;
+    };
 
 
     const getTaskbarLyricsDataPath = async () => {
@@ -566,12 +581,15 @@ plugin.onLoad(async () => {
     };
 
 
-    const startTaskbarLyricsProcess = async () => {
+    const startTaskbarLyricsProcess = async generation => {
+        if (!isTaskbarLyricsCurrent(generation)) return null;
         const dataPath = await getTaskbarLyricsDataPath();
+        if (!isTaskbarLyricsCurrent(generation)) return null;
         const pluginPath = this.pluginPath.replace("/./", "\\").replace("/", "\\");
         let lastError = null;
 
         for (let attempt = 1; attempt <= 3; attempt++) {
+            if (!isTaskbarLyricsCurrent(generation)) return null;
             try {
                 const launchStartedAt = Date.now();
                 const startupToken = `${launchStartedAt}-${Math.random().toString(36).slice(2)}`;
@@ -581,16 +599,19 @@ plugin.onLoad(async () => {
                 if (!started) {
                     addLog("[C++启动] 启动命令未确认执行，继续等待 C++ 状态", "warn");
                 }
+                // 命令已发出时仍等待实例就绪，让队列中的关闭请求能关闭迟到的进程。
                 const status = await waitForTaskbarLyricsStartupStatus(launchStartedAt, startupToken);
+                if (!isTaskbarLyricsCurrent(generation)) return null;
                 const replaced = status?.replaced_instance === true
                     || status?.startup_mode === "replaced";
                 addLog(
                     `[C++启动] C++ 报告：${replaced ? "已替换旧实例" : "正常启动"}（PID ${status?.pid ?? "未知"}）`,
                     replaced ? "warn" : "success"
                 );
-                startHeartbeat();
+                startHeartbeat(generation);
                 return status;
             } catch (error) {
+                if (!isTaskbarLyricsCurrent(generation)) return null;
                 lastError = error;
                 addLog(`[C++启动] 启动失败（${attempt}/3）：${error?.message ?? error}`, "warn");
             }
@@ -602,8 +623,10 @@ plugin.onLoad(async () => {
 
 
     const reconnect = async () => {
-        if (正在重连) return;
+        const generation = processGeneration;
+        if (正在重连 || !isTaskbarLyricsCurrent(generation)) return;
         正在重连 = true;
+        stopHeartbeat();
         try {
             currentIndex = 0;
             addLog("[重连] 检测到连接断开，正在重启 C++ 程序...", "error");
@@ -612,10 +635,11 @@ plugin.onLoad(async () => {
             const queue = this.base.queueTaskbarLyricsProcessOperation;
             let startupStatus;
             if (typeof queue === "function") {
-                startupStatus = await queue(() => startTaskbarLyricsProcess());
+                startupStatus = await queue(() => startTaskbarLyricsProcess(generation));
             } else {
-                startupStatus = await startTaskbarLyricsProcess();
+                startupStatus = await startTaskbarLyricsProcess(generation);
             }
+            if (!startupStatus || !isTaskbarLyricsCurrent(generation)) return;
 
             const replaced = startupStatus?.replaced_instance === true
                 || startupStatus?.startup_mode === "replaced";
@@ -626,47 +650,61 @@ plugin.onLoad(async () => {
             startGetLyric();
             addLog("[重连] 重连完成，已重新加载当前歌曲", "success");
         } catch (error) {
+            if (!isTaskbarLyricsCurrent(generation)) return;
             addLog(`[重连] 自动重连失败：${error?.message ?? error}，将继续重试`, "error");
             if (!listenerRegistered && !listenerRegistrationPending) {
                 startGetLyric();
             }
         } finally {
             正在重连 = false;
+            if (isTaskbarLyricsCurrent(generation) && heartbeatTimer === null) {
+                startHeartbeat(generation);
+            }
         }
     };
 
 
     // 心跳保活：C++ 不再响应（例如唤醒后卡死）时立即重启；
-    // 连续 5 次回执超限的重启仍作为兜底
+    // 连续 3 次回执超限的重启仍作为兜底
     let heartbeatTimer = null;
-    const startHeartbeat = () => {
-        if (heartbeatTimer) return;
+    let heartbeatGeneration = 0;
+    const startHeartbeat = generation => {
+        stopHeartbeat();
+        if (!isTaskbarLyricsCurrent(generation)) return;
+        const heartbeat = heartbeatGeneration;
+        const isCurrent = () => heartbeat === heartbeatGeneration && isTaskbarLyricsCurrent(generation);
         heartbeatTimer = setInterval(async () => {
-            if (正在重连) return;
+            if (正在重连 || !isCurrent()) return;
+            let timeoutId;
             try {
                 const response = await Promise.race([
                     TaskbarLyricsAPI.status({}),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("心跳超时")), HEARTBEAT_TIMEOUT))
+                    new Promise((_, reject) => {
+                        timeoutId = setTimeout(() => reject(new Error("心跳超时")), HEARTBEAT_TIMEOUT);
+                    })
                 ]);
                 if (!response?.ok) throw new Error(`HTTP ${response?.status ?? "未知"}`);
             } catch (error) {
-                if (正在重连) return;
+                if (正在重连 || !isCurrent()) return;
                 addLog(`[心跳] C++ 无响应（${error?.message ?? error}），立即重启`, "error");
                 void reconnect();
+            } finally {
+                clearTimeout(timeoutId);
             }
         }, HEARTBEAT_INTERVAL);
     };
 
     const stopHeartbeat = () => {
-        if (!heartbeatTimer) return;
+        heartbeatGeneration++;
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
     };
 
 
     // 监视软件内歌词变动
-    const watchLyricsChange = async () => {
+    const watchLyricsChange = async registrationToken => {
         const mLyric = await betterncm.utils.waitForElement("#x-g-mn .m-lyric");
+        if (registrationToken !== listenerRegistrationToken || !isTaskbarLyricsCurrent()) return;
         if (observer) observer.disconnect();
         const MutationCallback = mutations => {
             updateDebug("touchListener", { event: "MutationObserver" });
@@ -859,7 +897,8 @@ plugin.onLoad(async () => {
 
     // 发送当前进度对应的歌词
     const sendCurrentLyric = (time, force = false) => {
-        if (!parsedLyric) return;
+        // 暂停确认期间保留画面和发送索引，恢复后再补发跨过的歌词。
+        if (!parsedLyric || isPaused || progressPlaybackState === "paused") return;
 
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
         const progress = Number(time);
@@ -867,8 +906,8 @@ plugin.onLoad(async () => {
         let nextIndex = parsedLyric.findIndex(item => item.time > adjustedProgress * 1000);
         nextIndex = (nextIndex <= -1) ? parsedLyric.length : nextIndex;
 
-        // 间奏中（还没到下一句）或暂停中（非强制补发）不重新发送歌词
-        if (!force && ((interludeSent && nextIndex === currentIndex) || isPaused)) {
+        // 间奏中还没到下一句时不重新发送歌词。
+        if (!force && interludeSent && nextIndex === currentIndex) {
             currentIndex = nextIndex;
             return;
         }
@@ -962,7 +1001,8 @@ plugin.onLoad(async () => {
         clearLineEndTimer();
 
         const hideConfig = pluginConfig.get("hide");
-        if (!hideConfig["enabled"] || !parsedLyric || interludeSent || isPaused) return;
+        if (!hideConfig["enabled"] || !parsedLyric || interludeSent || isPaused
+            || progressPlaybackState === "paused") return;
 
         const adjust = Number(pluginConfig.get("effect")["adjust"]);
         const currentTime = (time + adjust) * 1000;
@@ -996,6 +1036,7 @@ plugin.onLoad(async () => {
             if (
                 !latestHideConfig["enabled"]
                 || isPaused
+                || progressPlaybackState === "paused"
                 || interludeSent
                 || !hasDisplayedRealLyric
                 || currentIndex !== currentLyricIndex + 1
@@ -1063,6 +1104,11 @@ plugin.onLoad(async () => {
         updateDebug("touchListener", { event: "PlayState" });
         let playing;
         let stateTime = null;
+        if (state && typeof state === "object") {
+            const t = state.time ?? state.currentTime ?? state.data?.time;
+            if (typeof t === "number") stateTime = t;
+            state = state.playing ?? state.isPlaying ?? state.data?.playing;
+        }
         if (typeof state === "boolean") playing = state;
         else if (typeof state === "number") playing = state !== 0;
         else if (typeof state === "string") {
@@ -1073,11 +1119,6 @@ plugin.onLoad(async () => {
             } else if (["pause", "paused", "false", "0"].some(value => stateFields.includes(value))) {
                 playing = false;
             }
-        }
-        else if (state && typeof state === "object") {
-            playing = state.playing ?? state.isPlaying ?? state.data?.playing;
-            const t = state.time ?? state.currentTime ?? state.data?.time;
-            if (typeof t === "number") stateTime = t;
         }
 
         // 无法识别的状态格式，记日志方便排查
@@ -1098,26 +1139,22 @@ plugin.onLoad(async () => {
                 clearTimeout(pauseDebounceTimer);
                 pauseDebounceTimer = null;
             }
-            if (isPaused) {
-                isPaused = false;
-                if (hasCurrentSongProgress) {
-                    addLog("[播放状态] 恢复播放，立即补发当前歌词", "info");
-                    sendCurrentLyric(lastProgressTime, true);
-                }
-            }
+            const wasPaused = isPaused;
+            isPaused = false;
             if (hasCurrentSongProgress) {
+                if (wasPaused) addLog("[播放状态] 恢复播放，立即补发当前歌词", "info");
+                sendCurrentLyric(lastProgressTime, wasPaused);
                 scheduleLineEndHide(lastProgressTime);
             }
         } else {
             // 暂停：防抖 500ms，过滤恢复瞬间可能出现的瞬时暂停事件
             clearLineEndTimer();
-            if (pauseDebounceTimer) clearTimeout(pauseDebounceTimer);
+            if (isPaused || pauseDebounceTimer) return;
             pauseDebounceTimer = setTimeout(() => {
                 pauseDebounceTimer = null;
-                if (isPaused) return;
+                if (isPaused || progressPlaybackState !== "paused") return;
                 isPaused = true;
-                interludeSent = false;
-                if (!hasCurrentSongProgress || !hasDisplayedRealLyric) return;
+                if (!hasCurrentSongProgress || !hasDisplayedRealLyric || interludeSent) return;
                 addLog("[播放状态] 暂停播放，发送空歌词", "info");
                 sendLyrics({ "basic": "", "extra": "" });
             }, 500);
@@ -1128,6 +1165,7 @@ plugin.onLoad(async () => {
 
     // 开始获取歌词
     function startGetLyric() {
+        if (!isTaskbarLyricsCurrent()) return;
         const config = pluginConfig.get("lyrics");
         const retrievalMethod = config["retrieval_method"]["value"];
         const methodName = retrievalMethodName(retrievalMethod);
@@ -1149,15 +1187,9 @@ plugin.onLoad(async () => {
         switch (retrievalMethod) {
             // 软件内词栏
             case 0: {
-                watchLyricsChange()
+                watchLyricsChange(registrationToken)
                     .then(() => {
-                        if (registrationToken !== listenerRegistrationToken) {
-                            if (observer) {
-                                observer.disconnect();
-                                observer = null;
-                            }
-                            return;
-                        }
+                        if (registrationToken !== listenerRegistrationToken) return;
                         listenerRegistrationPending = false;
                         listenerRegistered = true;
                         registeredRetrievalMethod = methodName;
@@ -1302,6 +1334,7 @@ plugin.onLoad(async () => {
         startGetLyric,
         stopGetLyric,
         startTaskbarLyricsProcess,
-        stopHeartbeat
+        setTaskbarLyricsEnabled,
+        isTaskbarLyricsCurrent
     }
 });

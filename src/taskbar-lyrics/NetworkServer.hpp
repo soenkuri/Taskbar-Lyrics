@@ -14,6 +14,7 @@ class 网络服务器类
 	class 任务栏窗口类* 任务栏窗口 = nullptr;
 	std::thread* 网络服务器_线程 = nullptr;
 	std::wstring 配置文件路径;
+	std::wstring 任务栏窗口类名 = L"Shell_TrayWnd";
 	std::mutex 配置互斥;
 	bool 替换已有实例 = false;
 	unsigned long long 启动时间 = 0;

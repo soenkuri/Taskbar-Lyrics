@@ -6,6 +6,10 @@
 #include <thread>
 
 
+constexpr UINT WM_TASKBAR_CONFIG = WM_APP + 1;
+constexpr UINT_PTR 任务栏检测定时器 = 4;
+
+
 class 任务栏窗口类
 {
     private:
@@ -21,8 +25,7 @@ class 任务栏窗口类
 
 
     private:
-    std::thread* 剩余宽度检测_线程 = nullptr;
-    void 剩余宽度检测();
+    void 剩余宽度检测(bool 强制挂载 = false);
 
 
     private:

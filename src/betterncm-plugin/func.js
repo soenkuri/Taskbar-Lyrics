@@ -13,7 +13,8 @@ plugin.onLoad(async () => {
         startGetLyric,
         stopGetLyric,
         startTaskbarLyricsProcess,
-        stopHeartbeat
+        setTaskbarLyricsEnabled,
+        isTaskbarLyricsCurrent
     } = { ...this.lyric };
 
 
@@ -22,9 +23,12 @@ plugin.onLoad(async () => {
 
     // 启动任务栏歌词软件
     const TaskbarLyricsStart = () => {
+        const generation = setTaskbarLyricsEnabled(true);
         const operation = async () => {
+            if (!isTaskbarLyricsCurrent(generation)) return;
             addLog("[生命周期] 正在启动 C++ 程序...", "info");
-            const startupStatus = await startTaskbarLyricsProcess();
+            const startupStatus = await startTaskbarLyricsProcess(generation);
+            if (!startupStatus || !isTaskbarLyricsCurrent(generation)) return;
             const replaced = startupStatus?.replaced_instance === true
                 || startupStatus?.startup_mode === "replaced";
             addLog(
@@ -35,16 +39,33 @@ plugin.onLoad(async () => {
             startGetLyric();
         };
         const queue = this.base.queueTaskbarLyricsProcessOperation;
-        return typeof queue === "function" ? queue(operation) : operation();
+        return (typeof queue === "function" ? queue(operation) : operation()).catch(error => {
+            if (isTaskbarLyricsCurrent(generation)) {
+                addLog(`[生命周期] 启动失败：${error?.message ?? error}`, "error");
+            }
+        });
     };
 
 
     // 关闭任务栏歌词软件
-    const TaskbarLyricsClose = async () => {
-        addLog("[生命周期] 页面卸载，正在关闭 C++ 程序...", "warn");
-        stopHeartbeat();
-        TaskbarLyricsAPI.close({});
-        stopGetLyric();
+    const TaskbarLyricsClose = event => {
+        addLog("[生命周期] 正在关闭 C++ 程序...", "warn");
+        setTaskbarLyricsEnabled(false);
+        const close = async () => {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+            try {
+                await TaskbarLyricsAPI.close({}, controller.signal);
+            } catch {
+                // 请求失败已由传输层记录；释放队列，允许用户重新开启。
+            } finally {
+                clearTimeout(timeout);
+            }
+        };
+        // 页面卸载不能依赖异步队列继续运行，先尽力发送一次关闭请求。
+        if (event?.type === "beforeunload") void close();
+        const queue = this.base.queueTaskbarLyricsProcessOperation;
+        return typeof queue === "function" ? queue(close) : close();
     };
 
 

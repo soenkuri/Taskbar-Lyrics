@@ -11,12 +11,6 @@
 ) {
     this->窗口句柄 = 窗口句柄;
 
-    this->任务栏_句柄 = FindWindow(L"Shell_TrayWnd", NULL);
-    this->通知区域_句柄 = FindWindowEx(this->任务栏_句柄, NULL, L"TrayNotifyWnd", NULL);
-    this->开始按钮_句柄 = FindWindowEx(this->任务栏_句柄, NULL, L"Start", NULL);
-    HWND 最小化区域_句柄 = FindWindowEx(this->任务栏_句柄, NULL, L"ReBarWindow32", NULL);
-    this->活动区域_句柄 = FindWindowEx(最小化区域_句柄, NULL, L"MSTaskSwWClass", NULL);
-
     // 创建D2D工厂
     D2D1CreateFactory(
         D2D1_FACTORY_TYPE_SINGLE_THREADED,
@@ -109,10 +103,14 @@ bool 呈现窗口类::等待当前显示(
 
 void 呈现窗口类::更新窗口()
 {
-    GetWindowRect(this->任务栏_句柄, &this->任务栏_矩形);
-    GetWindowRect(this->通知区域_句柄, &this->通知区域_矩形);
-    GetWindowRect(this->开始按钮_句柄, &this->开始按钮_矩形);
-    GetWindowRect(this->活动区域_句柄, &this->活动区域_矩形);
+    // 挂载有效后才移动和绘制窗口，避免把任务栏坐标用于桌面窗口。
+    if (!this->任务栏_句柄
+        || GetAncestor(*this->窗口句柄, GA_PARENT) != this->任务栏_句柄
+        || !GetWindowRect(this->任务栏_句柄, &this->任务栏_矩形)) return;
+    if (!GetWindowRect(this->通知区域_句柄, &this->通知区域_矩形)) this->通知区域_矩形 = {};
+    if (!GetWindowRect(this->开始按钮_句柄, &this->开始按钮_矩形)) this->开始按钮_矩形 = {};
+    if (!GetWindowRect(this->活动区域_句柄, &this->活动区域_矩形)) this->活动区域_矩形 = {};
+    if (IsRectEmpty(&this->任务栏_矩形)) return;
 
     long 左 = 0;
     long 上 = 0;
@@ -186,6 +184,7 @@ void 呈现窗口类::更新窗口()
         break;
     }
 
+    if (宽 <= 0) return;
     MoveWindow(*this->窗口句柄, 左, 上, 宽, 高, false);
     this->绘制窗口(左, 上, 宽, 高);
 }
@@ -205,6 +204,11 @@ void 呈现窗口类::绘制窗口(
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, 宽, 高);
     HBITMAP oldBitmap = HBITMAP(SelectObject(memDC, memBitmap));
 
+    // 每帧清为透明，再在同一次绘制中叠加旧、新歌词。
+    this->D2D呈现目标->BindDC(memDC, &rect);
+    this->D2D呈现目标->BeginDraw();
+    this->D2D呈现目标->Clear(D2D1::ColorF(0, 0.0f));
+
     if (this->淡出定时器ID)
     {
         // 绘制旧歌词淡出
@@ -214,7 +218,7 @@ void 呈现窗口类::绘制窗口(
         this->主歌词 = this->旧主歌词;
         this->副歌词 = this->旧副歌词;
         std::swap(this->淡入不透明度, this->淡出不透明度);
-        this->绘制歌词(memDC, rect);
+        this->绘制歌词(rect);
         std::swap(this->淡入不透明度, this->淡出不透明度);
 
         this->主歌词 = 临时主;
@@ -224,8 +228,10 @@ void 呈现窗口类::绘制窗口(
     // 非交叉模式先等待旧歌词淡出完成，再绘制新歌词
     if (this->交叉淡入淡出 || !this->淡出定时器ID)
     {
-        this->绘制歌词(memDC, rect);
+        this->绘制歌词(rect);
     }
+
+    this->D2D呈现目标->EndDraw();
 
     BLENDFUNCTION blend = {
         AC_SRC_OVER,
@@ -278,12 +284,8 @@ void 呈现窗口类::绘制窗口(
 
 
 void 呈现窗口类::绘制歌词(
-    HDC& hdc,
     RECT& rect
 ) {
-    this->D2D呈现目标->BindDC(hdc, &rect);
-    this->D2D呈现目标->BeginDraw();
-
     DWRITE_TRIMMING 歌词裁剪 = {
         DWRITE_TRIMMING_GRANULARITY_CHARACTER,
         0,
@@ -458,7 +460,6 @@ void 呈现窗口类::绘制歌词(
         this->DWrite副歌词文本布局 = nullptr;
     }
 
-    this->D2D呈现目标->EndDraw();
 }
 
 

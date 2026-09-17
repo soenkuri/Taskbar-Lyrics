@@ -574,7 +574,7 @@ void 网络服务器类::保存配置()
     写入整数(this->配置文件路径, L"Window", L"right_margin", 窗口->右边距);
     写入整数(this->配置文件路径, L"Window", L"single_bottom_margin", 窗口->单行底部边距);
     写入整数(this->配置文件路径, L"Window", L"double_bottom_margin", 窗口->双行底部边距);
-    写入字符串(this->配置文件路径, L"Window", L"parent_taskbar", 窗口->任务栏窗口类名);
+    写入字符串(this->配置文件路径, L"Window", L"parent_taskbar", this->任务栏窗口类名);
 
     写入整数(this->配置文件路径, L"Animation", L"fade_in_duration", 窗口->淡入时长);
     写入整数(this->配置文件路径, L"Animation", L"fade_out_duration", 窗口->淡出时长);
@@ -717,13 +717,12 @@ void 网络服务器类::加载配置()
         this->配置文件路径,
         L"Window",
         L"parent_taskbar",
-        窗口->任务栏窗口类名
+        this->任务栏窗口类名
     );
     if (任务栏类名.empty())
     {
         任务栏类名 = L"Shell_TrayWnd";
     }
-    窗口->任务栏窗口类名 = 任务栏类名;
 
     窗口->淡入时长 = 读取整数(this->配置文件路径, L"Animation", L"fade_in_duration", 窗口->淡入时长);
     窗口->淡出时长 = 读取整数(this->配置文件路径, L"Animation", L"fade_out_duration", 窗口->淡出时长);
@@ -750,37 +749,8 @@ void 网络服务器类::应用屏幕(const std::wstring& 任务栏类名)
         return;
     }
 
-    auto& 窗口 = this->任务栏窗口->呈现窗口;
-    窗口->任务栏窗口类名 = 任务栏类名;
-    HWND 任务栏句柄 = FindWindow(任务栏类名.c_str(), NULL);
-    if (任务栏句柄 == nullptr)
-    {
-        return;
-    }
-
-    窗口->任务栏_句柄 = 任务栏句柄;
-    窗口->通知区域_句柄 = FindWindowEx(任务栏句柄, NULL, L"TrayNotifyWnd", NULL);
-    窗口->开始按钮_句柄 = FindWindowEx(任务栏句柄, NULL, L"Start", NULL);
-    HWND 最小化区域句柄 = FindWindowEx(任务栏句柄, NULL, L"ReBarWindow32", NULL);
-    窗口->活动区域_句柄 = FindWindowEx(最小化区域句柄, NULL, L"MSTaskSwWClass", NULL);
-
-    if (窗口->任务栏_句柄 != nullptr)
-    {
-        GetWindowRect(窗口->任务栏_句柄, &窗口->任务栏_矩形);
-    }
-    if (窗口->通知区域_句柄 != nullptr)
-    {
-        GetWindowRect(窗口->通知区域_句柄, &窗口->通知区域_矩形);
-    }
-    if (窗口->开始按钮_句柄 != nullptr)
-    {
-        GetWindowRect(窗口->开始按钮_句柄, &窗口->开始按钮_矩形);
-    }
-    if (窗口->活动区域_句柄 != nullptr)
-    {
-        GetWindowRect(窗口->活动区域_句柄, &窗口->活动区域_矩形);
-    }
-
-    SetParent(this->任务栏窗口->窗口句柄, 任务栏句柄);
-    PostMessage(this->任务栏窗口->窗口句柄, WM_PAINT, NULL, NULL);
+    this->任务栏窗口类名 = 任务栏类名;
+    // 同步交给窗口线程复制类名并重挂；返回前字符串保持有效。
+    SendMessage(this->任务栏窗口->窗口句柄, WM_TASKBAR_CONFIG, 0,
+        reinterpret_cast<LPARAM>(任务栏类名.c_str()));
 }
